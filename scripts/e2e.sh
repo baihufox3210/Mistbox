@@ -310,6 +310,20 @@ m_idle=$(mem_mib app)
 check "閒置後自動卸載模型（${m_idle} MiB < 150 MiB）" bash -c "[[ \$(sget '$BASE/api/v1/rag/status' | jq -r .model_loaded) == false ]] && (( $m_idle < 150 ))"
 check "卸載後搜尋會自動重新載入模型" bash -c "sget '$BASE/api/v1/rag/search?q=$(urlenc '畢氏定理')&k=3' | jq -e '.results|length>0' >/dev/null"
 
+section "程式碼分析（靜態分析）"
+printf '#include "hardware/pio.h"\nint f(unsigned x) {\n  return x & 0x4 == 0;\n}\n' > "$WORK/bug.c"
+spost -o /dev/null -T "$WORK/bug.c" "$BASE/api/v1/fs/upload?path=/code/bug.c"
+printf '.program p\n    set pins, 40\n' > "$WORK/p.pio"
+spost -o /dev/null -T "$WORK/p.pio" "$BASE/api/v1/fs/upload?path=/code/p.pio"
+bug=$(node_id /code/bug.c)
+for _ in $(seq 1 30); do
+  [[ $(sget "$BASE/api/v1/code/findings?node_id=$bug" | jq -r '.index.status // empty') == indexed ]] && break
+  sleep 1
+done
+check "背景分析 C：找到位元運算優先順序錯誤（第 3 行）" bash -c "sget '$BASE/api/v1/code/findings?node_id=$bug' | jq -e '.findings | any(.rule == \"bit-precedence\" and .line == 3)' >/dev/null"
+check "背景分析 PIO：set 超過 31" bash -c "sget '$BASE/api/v1/code/findings?node_id=$(node_id /code/p.pio)' | jq -e '.findings | any(.rule == \"pio-set-range\")' >/dev/null"
+check "規則目錄可讀取" bash -c "sget '$BASE/api/v1/code/rules' | jq -e '.rules | length > 30' >/dev/null"
+
 section "未登入 / 路徑穿越"
 check "未登入列出 → 401" bash -c "[[ \$(status '$BASE/api/v1/nodes/root/children') == 401 ]]"
 check "未登入下載 → 401" bash -c "[[ \$(status '$BASE/api/v1/nodes/$other/content') == 401 ]]"

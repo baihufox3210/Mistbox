@@ -1070,7 +1070,7 @@ impl Rag {
     }
 }
 
-async fn read_blob(store: &Store, n: &Node, limit: u64) -> anyhow::Result<Vec<u8>> {
+pub(crate) async fn read_blob(store: &Store, n: &Node, limit: u64) -> anyhow::Result<Vec<u8>> {
     let mut buf = Vec::with_capacity((n.size as u64).min(limit) as usize);
     tokio::fs::File::open(store.blob_path(n.blob_id.as_deref().unwrap_or_default()))
         .await?

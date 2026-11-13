@@ -96,6 +96,8 @@ export interface EditorHooks {
   onSaved?: (n: NodeInfo) => void;
   register?: (save: (() => Promise<void>) | null) => void;
   line?: number;
+  /** Show static-analysis findings for code files (IDE). */
+  diagnostics?: boolean;
 }
 
 /** Draft / save state for an editable text file (UTF-8, not truncated). */

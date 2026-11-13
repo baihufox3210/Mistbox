@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { EditorState, Compartment, StateEffect, StateField, type Extension } from '@codemirror/state';
+import { EditorState, Compartment, StateEffect, StateField, RangeSet, type Extension } from '@codemirror/state';
 import {
   EditorView,
   lineNumbers,
@@ -9,6 +9,8 @@ import {
   drawSelection,
   keymap,
   Decoration,
+  gutter,
+  GutterMarker,
   type DecorationSet,
 } from '@codemirror/view';
 import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle, StreamLanguage, foldGutter, bracketMatching, indentOnInput } from '@codemirror/language';
@@ -68,6 +70,8 @@ export function languageExtension(lang: string): Extension {
       return StreamLanguage.define(xml);
     case 'css':
       return StreamLanguage.define(css);
+    case 'pio':
+      return StreamLanguage.define(pioMode);
     default:
       return [];
   }
@@ -77,7 +81,88 @@ const LABEL: Record<string, string> = {
   c: 'C', cpp: 'C++', java: 'Java', python: 'Python', rust: 'Rust', javascript: 'JavaScript', jsx: 'JSX',
   typescript: 'TypeScript', tsx: 'TSX', json: 'JSON', yaml: 'YAML', sql: 'SQL', markdown: 'Markdown',
   toml: 'TOML', shell: 'Shell', latex: 'LaTeX 原始碼', html: 'HTML/XML（純顯示，不執行）', css: 'CSS', text: '純文字',
+  pio: 'PIO 組合語言',
 };
+
+/** RP2040 / RP2350 PIO assembly (`.pio`). */
+const pioMode = {
+  name: 'pio',
+  token(stream: import('@codemirror/language').StringStream): string | null {
+    if (stream.eatSpace()) return null;
+    if (stream.match(';') || stream.match('//')) {
+      stream.skipToEnd();
+      return 'comment';
+    }
+    if (stream.match(/^\.[a-z_]+/) || stream.match(/^%.*/)) return 'meta';
+    if (stream.match(/^(0x[0-9a-f]+|0b[01]+|\d+)/i)) return 'number';
+    if (stream.match(/^(jmp|wait|in|out|push|pull|mov|irq|set|nop)\b/i)) return 'keyword';
+    if (stream.match(/^(side|opt|block|noblock|iffull|ifempty|rel|pins|pindirs|x|y|null|isr|osr|exec|pc|status|gpio|pin|public|clear|nowait)\b/i)) return 'atom';
+    if (stream.match(/^[A-Za-z_]\w*:/)) return 'labelName';
+    if (stream.match(/^[A-Za-z_]\w*/)) return 'variableName';
+    stream.next();
+    return null;
+  },
+};
+
+/** A static-analysis finding shown in the editor. */
+export interface Diagnostic {
+  line: number;
+  severity: 'error' | 'warning' | 'perf' | 'info';
+  message: string;
+  title?: string;
+}
+
+const SEV_LABEL: Record<Diagnostic['severity'], string> = { error: '錯誤', warning: '警告', perf: '可優化', info: '建議' };
+
+class DiagMarker extends GutterMarker {
+  constructor(
+    readonly severity: Diagnostic['severity'],
+    readonly text: string,
+  ) {
+    super();
+  }
+  eq(o: DiagMarker) {
+    return o.severity === this.severity && o.text === this.text;
+  }
+  toDOM() {
+    const el = document.createElement('span');
+    el.className = `cm-diag-dot ${this.severity}`;
+    el.title = this.text;
+    el.setAttribute('aria-label', this.text);
+    return el;
+  }
+}
+
+const setDiags = StateEffect.define<Diagnostic[]>();
+const RANK = { error: 0, warning: 1, perf: 2, info: 3 };
+/** Line highlights + gutter markers; positions follow edits until refreshed. */
+const diagField = StateField.define<{ lines: DecorationSet; marks: RangeSet<GutterMarker> }>({
+  create: () => ({ lines: Decoration.none, marks: RangeSet.empty }),
+  update(v, tr) {
+    for (const e of tr.effects) {
+      if (!e.is(setDiags)) continue;
+      const doc = tr.state.doc;
+      const byLine = new Map<number, Diagnostic[]>();
+      for (const d of e.value) {
+        if (d.line < 1 || d.line > doc.lines) continue;
+        byLine.set(d.line, [...(byLine.get(d.line) ?? []), d]);
+      }
+      const lines = [];
+      const marks = [];
+      for (const [ln, ds] of [...byLine].sort((a, b) => a[0] - b[0])) {
+        ds.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
+        const from = doc.line(ln).from;
+        const text = ds.map((d) => `${SEV_LABEL[d.severity]}：${d.title ? d.title + '—' : ''}${d.message}`).join('\n');
+        lines.push(Decoration.line({ class: `cm-diag-line ${ds[0].severity}`, attributes: { title: text } }).range(from));
+        marks.push(new DiagMarker(ds[0].severity, text).range(from));
+      }
+      return { lines: Decoration.set(lines), marks: RangeSet.of(marks) };
+    }
+    return tr.docChanged ? { lines: v.lines.map(tr.changes), marks: v.marks.map(tr.changes) } : v;
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.lines),
+});
+const diagGutter = gutter({ class: 'cm-diag-gutter', markers: (v) => v.state.field(diagField).marks });
 
 const theme = EditorView.theme({
   '&': { height: '100%', fontSize: 'var(--code-font-size, 13.5px)', backgroundColor: 'var(--code-bg)', color: 'var(--text)' },
@@ -128,6 +213,8 @@ interface Props {
   onSave?: () => void;
   /** 1-based line to scroll to and highlight. */
   line?: number;
+  /** Static-analysis findings to mark in the gutter. */
+  diagnostics?: Diagnostic[];
 }
 
 /**
@@ -135,7 +222,7 @@ interface Props {
  * wrap, optional editing with Ctrl/Cmd+S. The document is created once per
  * mount (remount with a React key to load new text). CRLF files keep CRLF.
  */
-export default function CodeView({ text, lang, toolbar, editable = false, onChange, onSave, line }: Props) {
+export default function CodeView({ text, lang, toolbar, editable = false, onChange, onSave, line, diagnostics }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const comps = useRef({ wrap: new Compartment(), ro: new Compartment(), lang: new Compartment() });
@@ -152,6 +239,8 @@ export default function CodeView({ text, lang, toolbar, editable = false, onChan
       state: EditorState.create({
         doc: text,
         extensions: [
+          diagField,
+          diagGutter,
           lineNumbers(),
           foldGutter(),
           highlightSpecialChars(),
@@ -204,6 +293,9 @@ export default function CodeView({ text, lang, toolbar, editable = false, onChan
   useEffect(() => {
     view.current?.dispatch({ effects: comps.current.wrap.reconfigure(wrap ? EditorView.lineWrapping : []) });
   }, [wrap]);
+  useEffect(() => {
+    view.current?.dispatch({ effects: setDiags.of(diagnostics ?? []) });
+  }, [diagnostics]);
   useEffect(() => {
     const v = view.current;
     if (!v || !line) return;

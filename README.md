@@ -84,6 +84,11 @@ docker compose exec app mistbox admin create --username admin
 - 檔案總管**底部**有操作列（新檔案、新資料夾、上傳、上傳資料夾、重新整理），上傳進度也顯示在這裡。
 - 右側整塊是分頁式的預覽與編輯區，最下方是狀態列（路徑、未儲存提示、語言、語意索引狀態）。
 - **空白處雙擊**會直接新增檔案（建立在目前選取的資料夾，或根目錄）。
+- **分割編輯器**：像 VS Code 一樣左右、上下並排多個編輯器群組。
+  - 分頁列右側的按鈕，或 `Ctrl+\`（向右）、`Ctrl+Alt+\`（向下）。
+  - 把分頁或檔案總管裡的檔案拖到群組中央即加入該群組，拖到邊緣就在那一側分割。
+  - `Ctrl+1`～`9` 切換群組；拖曳分隔線調整大小。
+- **問題面板**（`Ctrl+Shift+M`，或點狀態列的 ⊗ ⚠ ⚡ 計數）：靜態分析與重複程式碼，見〈3c〉。
 
 ### 兩種版面共通
 
@@ -245,6 +250,27 @@ Firefox 會攔截 `Ctrl+Shift+P`（開啟隱私視窗），請改用 `F1` 或 `C
   - `theme/README.md`：**給你或其他 AI 的修改指南**，列出穩定的 CSS 變數（`--accent-*`、`--syn-*`、`--mb-bg-*`…）、區塊選擇器（`[data-region="explorer"]`、`.layout-ide`、`html[data-theme="dark"]`…）與 CSP 限制。
   - 字型與圖片請放在 `theme/`，並用 `/theme/檔名` 引用。外部 CSS 與字型會被 CSP 擋下。
   - `theme/` 不需登入即可讀取，請不要放私人檔案。
+
+## 3c. 程式碼分析（靜態分析、重複程式碼）
+
+不使用 LLM，也不執行任何上傳的程式碼：以 tree-sitter 解析語法樹，再用規則比對。
+上傳或編輯後幾秒內自動在背景分析；敏感檔與垃圾桶不分析。
+
+- **支援語言**：
+  - C、C++（含 CUDA `.cu`、Arduino `.ino`；含 C++ 內容的 `.h` 會自動以 C++ 解析）、Python：符號、呼叫關係、規則檢查。
+  - RP2040／RP2350 PIO 組合語言（`.pio`）：自寫的解析器與規則。
+  - 其他常見語言（Rust、Go、JS/TS、Java…）：只做重複程式碼偵測。
+- **規則**（完整清單與修正建議見 `GET /api/v1/code/rules`，或問題面板中點開一筆）：
+  - **位元運算／位元欄位**：`x & MASK == 0` 優先順序、`1 << n - 1`、有號左移溢位（`1 << 31`）、位移超過型別寬度、遮罩結果和 1 比較、`&&` 搭配十六進位遮罩、未指定正負的 `int` 位元欄位、以 volatile 位元欄位對應硬體暫存器。
+  - **RP2350／Pico SDK**：暫存器非原子讀-改-寫（建議 `hw_set_bits` / `hw_clear_bits`）、寫死 DMA 通道或 PIO 狀態機、忙碌等待 DMA／FIFO、CPU 逐字搬 PIO 資料（建議 DMA + DREQ）、中斷中修改非 volatile 全域變數、中斷中呼叫阻塞函式、在單精度 FPU 上使用 double。
+  - **PIO**：超過 32 條指令、延遲超出（與 side-set 共用 5 位元）、缺少或超出範圍的 side-set、`set` 超過 31、未定義的 jmp 標籤、可改用 autopull／autopush。
+  - **ROS 2**：callback 中 sleep、spin、同步等待服務回應、建立 publisher／subscription、以傳值接收訊息（rclcpp 與 rclpy）。
+  - **平行計算**：OpenMP 迴圈中共享變數的資料競爭、偽共享、迴圈內 critical、條件分支中的 `__syncthreads()`、迴圈中反覆 `cudaMemcpy`、以 volatile 做執行緒同步、multiprocessing 缺少 `__main__` 保護。
+  - **一般效能**：迴圈條件中的 `strlen`、以 `pow` 算整數次方。
+- **嚴重度**：⊗ 錯誤（幾乎確定是 bug）、⚠ 警告、⚡ 可優化、ⓘ 建議。
+- **重複程式碼**：以 winnowing 指紋比對（與抄襲偵測工具 MOSS 同原理），改過變數名稱、常數或註解也找得到；約 50 個語彙單元（5–8 行）以上才列出。問題面板中按「並排」會左右開啟兩處比較。
+- **在哪裡看**：IDE 版面的編輯器左側有標記，滑鼠移上去看說明；問題面板可切換「目前檔案／整個雲端」。
+- **API**：`/api/v1/code/findings`、`/code/duplicates`、`/code/symbols`，見 [docs/API.md](docs/API.md)。
 
 ## 4. 來源資料夾匯入
 

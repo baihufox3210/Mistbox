@@ -2187,3 +2187,119 @@ async fn file_share_edit_allows_saving_content_only() {
         StatusCode::FORBIDDEN
     );
 }
+
+const LED_C: &str = r#"#include "pico/stdlib.h"
+#include "hardware/pio.h"
+static void fill_buffer(uint32_t *buf, int n, uint32_t color) {
+    for (int i = 0; i < n; i++) {
+        uint32_t r = (color >> 16) & 0xff;
+        uint32_t g = (color >> 8) & 0xff;
+        uint32_t b = color & 0xff;
+        buf[i] = (g << 24) | (r << 16) | (b << 8);
+    }
+}
+int check(uint32_t x) {
+    return x & 0x4 == 0;
+}
+"#;
+
+#[tokio::test]
+async fn code_index_findings_duplicates_symbols_and_scope() {
+    let t = T::new().await;
+    let fw = t.mkdir("root", "fw").await;
+    let other = t.mkdir("root", "other").await;
+    let a = t.upload(&fw, "led.c", LED_C.as_bytes()).await.json()["id"].as_str().unwrap().to_string();
+    let copy = LED_C.replace("fill_buffer", "paint").replace("color", "rgb").replace("check", "chk");
+    let b = t.upload(&other, "copy.c", copy.as_bytes()).await.json()["id"].as_str().unwrap().to_string();
+    t.upload(&fw, "ws.pio", b".program p\n    set pins, 40\n").await;
+    t.upload(&fw, "notes.md", b"# not code\n").await;
+    // Sensitive: never analysed.
+    let s = t.upload(&fw, "secret.c", b"int f(int x){ return x & 1 == 0; }\n").await.json()["id"].as_str().unwrap().to_string();
+    t.admin(Method::PATCH, &format!("/api/v1/nodes/{s}"), Some(json!({"sensitive": true}))).await;
+
+    let n = t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
+    assert_eq!(n, 4, "sensitive file is not even looked at");
+    assert_eq!(t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap(), 0, "nothing changed");
+
+    let r = t.admin(Method::GET, "/api/v1/code/status", None).await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    assert_eq!(r.json()["files"], 3, "{:?}", r.json());
+    assert_eq!(r.json()["by_lang"]["c"], 2);
+    assert_eq!(r.json()["by_lang"]["pio"], 1);
+    assert_eq!(r.json()["pending"], 0);
+
+    // Findings in one file, and in a folder.
+    let r = t.admin(Method::GET, &format!("/api/v1/code/findings?node_id={a}"), None).await;
+    let f = r.json()["findings"].as_array().unwrap().clone();
+    assert!(f.iter().any(|x| x["rule"] == "bit-precedence" && x["line"] == 12 && x["symbol"] == "check" && x["path"] == "/fw/led.c"), "{f:?}");
+    let r = t.admin(Method::GET, &format!("/api/v1/code/findings?node_id={fw}&severity=error"), None).await;
+    let rules: Vec<_> = r.json()["findings"].as_array().unwrap().iter().map(|x| x["rule"].as_str().unwrap().to_string()).collect();
+    assert!(rules.contains(&"pio-set-range".to_string()) && rules.contains(&"bit-precedence".to_string()), "{rules:?}");
+    assert!(rules.iter().all(|r| r != "irq-blocking-call"));
+    let r = t.admin(Method::GET, "/api/v1/code/findings?severity=bogus", None).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    let r = t.admin(Method::GET, &format!("/api/v1/code/findings?node_id={s}"), None).await;
+    assert_eq!(r.json()["findings"].as_array().unwrap().len(), 0, "sensitive file not analysed");
+
+    // Duplicates: the renamed copy in another folder.
+    let r = t.admin(Method::GET, &format!("/api/v1/code/duplicates?node_id={a}"), None).await;
+    let d = r.json()["duplicates"].as_array().unwrap().clone();
+    assert_eq!(d.len(), 1, "{d:?}");
+    assert_eq!(d[0]["b"]["path"], "/other/copy.c");
+    assert!(d[0]["a"]["line_start"].as_i64().unwrap() <= 4 && d[0]["a"]["line_end"].as_i64().unwrap() >= 8, "{d:?}");
+    let r = t.admin(Method::GET, "/api/v1/code/duplicates", None).await;
+    assert_eq!(r.json()["duplicates"].as_array().unwrap().len(), 1, "pair reported once");
+
+    // Symbols.
+    let r = t.admin(Method::GET, "/api/v1/code/symbols?q=fill_buffer", None).await;
+    let sy = r.json()["symbols"].as_array().unwrap().clone();
+    assert_eq!(sy.len(), 1);
+    assert_eq!((sy[0]["path"].as_str(), sy[0]["line_start"].as_i64()), (Some("/fw/led.c"), Some(3)));
+    assert_eq!(t.admin(Method::GET, "/api/v1/code/symbols?q=p", None).await.json()["symbols"][0]["kind"], "pio_program");
+
+    // Editing the file re-analyses it; the bug is gone.
+    let r = t
+        .raw(
+            Method::PUT,
+            &format!("/api/v1/nodes/{a}/content"),
+            &[("cookie", &t.cookie), ("x-csrf-token", &t.csrf), ("if-match", &format!("\"{}\"", sha(LED_C.as_bytes())))],
+            LED_C.replace("x & 0x4 == 0", "(x & 0x4) == 0").into_bytes(),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    assert_eq!(t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap(), 1);
+    let r = t.admin(Method::GET, &format!("/api/v1/code/findings?node_id={a}&severity=error"), None).await;
+    assert_eq!(r.json()["findings"].as_array().unwrap().len(), 0, "{:?}", r.json());
+
+    // API key scoped to /fw: sees only /fw; the copy in /other is out of scope.
+    let k = t.key(json!({"name":"k","permissions":{"list":true,"read":true},"scope_node_id": fw})).await;
+    let r = t.bearer(&k, Method::GET, &format!("/api/v1/code/duplicates?node_id={a}"), vec![]).await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    assert_eq!(r.json()["duplicates"].as_array().unwrap().len(), 0);
+    let r = t.bearer(&k, Method::GET, &format!("/api/v1/code/findings?node_id={b}"), vec![]).await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    let r = t.bearer(&k, Method::GET, "/api/v1/code/symbols?q=paint", vec![]).await;
+    assert_eq!(r.json()["symbols"].as_array().unwrap().len(), 0);
+    // Without read: forbidden.
+    let k2 = t.key(json!({"name":"k2","permissions":{"list":true},"scope_node_id": fw})).await;
+    let r = t.bearer(&k2, Method::GET, "/api/v1/code/findings", vec![]).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    // Share links: no code analysis.
+    let (_, tok, _) = make_share(&t, json!({"node_id": fw})).await;
+    let r = as_share(&t, &tok, Method::GET, "/api/v1/code/findings", vec![]).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    // Rules catalogue; reindex is admin-only.
+    let r = t.admin(Method::GET, "/api/v1/code/rules", None).await;
+    assert!(r.json()["rules"].as_array().unwrap().len() > 30);
+    let r = t.bearer(&k, Method::POST, "/api/v1/code/reindex", vec![]).await;
+    assert!(r.status == StatusCode::FORBIDDEN || r.status == StatusCode::UNAUTHORIZED);
+    let r = t.admin(Method::POST, "/api/v1/code/reindex", None).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap(), 4);
+
+    // Trashing a file removes its results.
+    t.admin(Method::DELETE, &format!("/api/v1/nodes/{b}"), None).await;
+    t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
+    let r = t.admin(Method::GET, "/api/v1/code/duplicates", None).await;
+    assert_eq!(r.json()["duplicates"].as_array().unwrap().len(), 0);
+}

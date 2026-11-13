@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, contentUrl, type NodeInfo } from '../api';
 import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { languageFor, previewKind } from '../fileTypes';
 import { formatDate, formatSize } from '../format';
+import { useCodeRules, useFileFindings } from '../state/codeFindings';
 import CodeView from './CodeView';
 import { Info } from './Info';
 import LatexView from './LatexView';
@@ -105,8 +106,18 @@ function CodePreview({ node, editor }: PreviewProps) {
 
 function CodeBody({ node, d, t, editor }: { node: NodeInfo; d: import('../api').TextPreview; t: ReturnType<typeof useText>; editor?: EditorHooks }) {
   const ed = useEditing(node, d, editor);
+  const fs = useFileFindings(node, !!editor?.diagnostics);
+  const rules = useCodeRules();
+  const diagnostics = useMemo(
+    () =>
+      fs.s === 'ready' || fs.s === 'pending'
+        ? fs.findings.map((f) => ({ line: f.line, severity: f.severity, message: f.message, title: rules?.get(f.rule)?.title }))
+        : undefined,
+    [fs, rules],
+  );
   return (
     <CodeView
+      diagnostics={diagnostics}
       key={`${t.encoding}-${d.text.length}`}
       text={ed.text}
       lang={languageFor(node.name)}

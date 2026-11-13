@@ -26,6 +26,7 @@ import {
   type GNode,
   type Grid,
 } from '../state/editorGrid';
+import { useCaps } from '../caps';
 import { DND_TYPE, useTabHooks } from './shared';
 
 const Preview = lazy(() => import('../preview/Preview'));
@@ -105,7 +106,7 @@ export default function EditorGrid({
   const gridRef = useRef(grid);
   gridRef.current = grid;
   const prevActive = useRef<string | null>(null);
-  const place = useRef<{ group: string; edge?: Edge } | null>(null);
+  const place = useRef<{ group: string; edge?: Edge; tab?: string } | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const [drop, setDrop] = useState<{ group: string; zone: Edge | 'center' } | null>(null);
 
@@ -189,11 +190,30 @@ export default function EditorGrid({
       }
     };
     const onCmd = (e: Event) => run((e as CustomEvent<GridAction>).detail);
+    // Open two places side by side (duplicate-code comparison).
+    const onCompare = async (e: Event) => {
+      const { a, b } = (e as CustomEvent<{ a: { id: string; line_start: number }; b: { id: string; line_start: number } }>).detail;
+      try {
+        const [na, nb] = await Promise.all([api.info(a.id), api.info(b.id)]);
+        const g = gridRef.current;
+        const ga = groupOf(g, na.id) ?? g.focused;
+        if (na.id !== nb.id) {
+          if (groupOf(g, nb.id)) apply(split(g, ga, 'right', nb.id).grid);
+          else place.current = { group: ga, edge: 'right', tab: nb.id };
+        }
+        mRef.current.openFile(na, a.line_start);
+        if (na.id !== nb.id) mRef.current.openFile(nb, b.line_start);
+      } catch {
+        /* file gone */
+      }
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('mistbox:editor', onCmd);
+    window.addEventListener('mistbox:compare', onCompare);
     return () => {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('mistbox:editor', onCmd);
+      window.removeEventListener('mistbox:compare', onCompare);
     };
   }, [run, apply]);
 
@@ -313,7 +333,8 @@ function EditorGroup({
   const focused = grid.focused === gid;
   const tabs = gr.tabs.map((id) => m.tabs.find((t) => t.node.id === id)).filter((t) => !!t);
   const activeTab = tabs.find((t) => t.node.id === gr.active);
-  const hooks = useTabHooks(m, activeTab, true);
+  const caps = useCaps();
+  const hooks = useTabHooks(m, activeTab, true, caps.admin);
   const body = useRef<HTMLDivElement>(null);
   const accepts = (e: React.DragEvent) => e.dataTransfer.types.includes(TAB_DND) || e.dataTransfer.types.includes(DND_TYPE);
 

@@ -136,6 +136,7 @@ export function useCommands(
         { id: 'focus-next-group', label: '編輯器：切換到下一個群組', icon: 'layout', shortcut: `${MOD}+1…9`, keywords: 'focus next editor group 群組', run: grid('focus-next') },
         { id: 'join-groups', label: '編輯器：合併所有群組', icon: 'layout', keywords: 'join merge editor groups 合併 取消分割', run: grid('join-all') },
         { id: 'close-group', label: '編輯器：關閉目前群組', icon: 'close', keywords: 'close editor group 群組', run: grid('close-group') },
+        { id: 'problems', label: '切換問題面板（靜態分析、重複程式碼）', icon: 'sevWarning', shortcut: `${MOD}+Shift+M`, keywords: 'problems lint static analysis duplicate 問題 分析 重複 優化', run: () => window.dispatchEvent(new Event('mistbox:problems')) },
       );
     }
     if (activeNode) {
@@ -147,7 +148,7 @@ export function useCommands(
       );
     }
     // Share-link viewers: no admin features; read-only links cannot change anything.
-    const adminOnly = new Set(['semantic', 'layout-drive', 'layout-ide', 'settings', 'reload-css', 'trash', 'keys', 'shares', 'share-active', 'password', 'logout']);
+    const adminOnly = new Set(['semantic', 'problems', 'layout-drive', 'layout-ide', 'settings', 'reload-css', 'trash', 'keys', 'shares', 'share-active', 'password', 'logout']);
     const writeOnly = new Set(['new-file', 'new-folder', 'upload', 'upload-folder', 'save', 'rename-active']);
     const allowed = (x: Command) => (caps.admin || !adminOnly.has(x.id)) && (caps.write || !writeOnly.has(x.id));
     return [...(extra ?? []), ...c.filter((x) => x.id !== `layout-${layout}` && allowed(x))];

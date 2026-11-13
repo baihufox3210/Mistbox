@@ -111,6 +111,11 @@ Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8725/api
 | GET | `/rag/status` | 任一 | 語意搜尋狀態：模型、已索引檔案數、片段數、待處理數 |
 | GET | `/rag/search?q=…&k=10` | read | 語意搜尋（本地向量模型，含 PDF 內文）。每個檔案最多 3 個片段：`{results:[{node, score, seq, line_start, line_end, unit, text}]}`；`unit` 為 `line`（行號）或 `page`（PDF 頁碼，此時 line_start = line_end = 頁碼） |
 | GET | `/rag/context?q=…&k=5&max_chars=6000` | read | 產生給 LLM 的 RAG 上下文：`{context:"[1] /path:1-20\n…", sources:[…]}`（PDF 為 `/path.pdf:p.3`） |
+| GET | `/code/status` | read | 程式碼索引狀態：`{state, files, pending, by_lang, findings:{error,warning,perf,info}}` |
+| GET | `/code/rules` | 任一 | 靜態分析規則目錄：`{rules:[{id, severity, category, title, hint}]}` |
+| GET | `/code/findings?node_id=…&severity=…&limit=500` | read | 靜態分析結果。`node_id` 為檔案時只回該檔，為資料夾時回其下所有檔（預設：自己的根目錄）。`severity` 為 `error` / `warning` / `perf` / `info`。每筆：`{node_id, path, rule, severity, line, col, line_end, message, symbol}`。查詢檔案時另回 `index:{status, sha256, lang, detail, lines}`，`sha256` 與檔案目前版本相同表示結果是最新的 |
+| GET | `/code/duplicates?node_id=…&limit=100` | read | 重複程式碼（改過變數名稱與常數也找得到）。檔案：自己範圍內所有重複它的地方；資料夾：其下檔案之間最大的重複片段（每對只列一次）。每筆：`{a:{id,path,line_start,line_end}, b:{…}, tokens}` |
+| GET | `/code/symbols?q=名稱` | read | 函式、型別、巨集、PIO 程式／標籤的定義位置：`{symbols:[{node_id, path, name, kind, line_start, line_end}]}` |
 
 管理者專用（只限 session，須帶 CSRF）：
 
@@ -125,6 +130,7 @@ Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8725/api
 | DELETE | `/keys/{id}` | 撤銷（保留紀錄） |
 | GET / PUT | `/settings` | 介面設定：`{"background_url","background_dim","background_blur"}`。背景網址只接受 https URL 或站內路徑，不可含引號、括號、空白 |
 | POST | `/rag/reindex` | 清除並在背景重建語意索引 |
+| POST | `/code/reindex` | 清除並在背景重新分析所有程式碼 |
 | GET | `/trash` | 垃圾桶內容：原名稱、原路徑、`trashed_at`、`purge_at` |
 | POST | `/trash/{id}/restore` | 還原到原位置（同名時自動編號；原資料夾不存在則還原到根目錄） |
 | DELETE | `/trash` | 清空垃圾桶（永久刪除） |

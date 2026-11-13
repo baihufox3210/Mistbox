@@ -211,7 +211,7 @@ export function reconcile(
   open: string[],
   active: string | null,
   prevActive: string | null,
-  place?: { group: string; edge?: Edge } | null,
+  place?: { group: string; edge?: Edge; tab?: string } | null,
 ): { grid: Grid; active: string | null } {
   const openSet = new Set(open);
   let out = g;
@@ -230,7 +230,7 @@ export function reconcile(
   for (const t of open) {
     if (groupOf(out, t)) continue;
     let to = out.focused;
-    if (place && out.groups[place.group]) {
+    if (place && out.groups[place.group] && (!place.tab || place.tab === t)) {
       if (place.edge) {
         const r = split(out, place.group, place.edge);
         out = r.grid;

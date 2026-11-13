@@ -11,6 +11,7 @@ export function ext(name: string): string {
 /** extension -> language id understood by CodeView */
 export const CODE_LANG: Record<string, string> = {
   c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp', hxx: 'cpp', ino: 'cpp',
+  cu: 'cpp', cuh: 'cpp', pio: 'pio',
   java: 'java', kt: 'java', scala: 'java',
   py: 'python', pyw: 'python', pyi: 'python',
   rs: 'rust',

@@ -1,6 +1,7 @@
 //! HTTP routes. Everything under `/api/v1`; the built frontend is served
 //! from the same origin so no CORS is needed (and none is enabled).
 
+mod code;
 mod auth;
 mod files;
 mod fs;
@@ -81,6 +82,12 @@ pub fn router(state: AppState) -> Router {
         .route("/rag/search", get(rag::search))
         .route("/rag/context", get(rag::context))
         .route("/rag/reindex", post(rag::reindex))
+        .route("/code/status", get(code::status))
+        .route("/code/rules", get(code::rules))
+        .route("/code/findings", get(code::findings))
+        .route("/code/duplicates", get(code::duplicates))
+        .route("/code/symbols", get(code::symbols))
+        .route("/code/reindex", post(code::reindex))
         .route("/fs/list", get(fs::list))
         .route("/fs/info", get(fs::info))
         .route("/fs/download", get(fs::download))

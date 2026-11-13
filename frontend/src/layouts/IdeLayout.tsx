@@ -9,6 +9,8 @@ import { MOD } from '../components/Shell';
 import { UploadPanel } from '../components/Uploads';
 import { languageFor } from '../fileTypes';
 import type { DriveModel } from '../state/useDrive';
+import ProblemsPanel, { SevIcon, useActiveCounts } from '../components/ProblemsPanel';
+import { useCaps } from '../caps';
 import EditorGrid from './EditorGrid';
 import { DND_TYPE, dropMove, emptyMenu, nodeMenu, ragLabel, useRagStatus, useTree } from './shared';
 
@@ -31,6 +33,24 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
   const [width, setWidth] = useState(Number(localStorage.getItem('mistbox.ideSideW')) || 280);
   const box = useRef<HTMLDivElement>(null);
   const rag = useRagStatus();
+  const caps = useCaps();
+  const [problems, setProblems] = useState(localStorage.getItem('mistbox.problems') === '1');
+  const [problemsH, setProblemsH] = useState(Number(localStorage.getItem('mistbox.problemsH')) || 220);
+  useEffect(() => localStorage.setItem('mistbox.problems', problems ? '1' : '0'), [problems]);
+  useEffect(() => localStorage.setItem('mistbox.problemsH', String(problemsH)), [problemsH]);
+  // Ctrl+Shift+M / palette command toggles the problems panel.
+  useEffect(() => {
+    const toggle = () => setProblems((p) => !p);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        toggle();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('mistbox:problems', toggle);
+    return () => (window.removeEventListener('keydown', onKey), window.removeEventListener('mistbox:problems', toggle));
+  }, []);
 
   const rows = useMemo(() => {
     const out: Row[] = [];
@@ -133,6 +153,18 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
 
   const activeTab = m.tabs.find((t) => t.node.id === m.active);
   const nodeFor = useCallback((id: string) => byId.get(id), [byId]);
+  const { counts } = useActiveCounts(activeTab?.node, caps.admin);
+
+  const dragProblems = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const bottom = (el.parentElement as HTMLElement).getBoundingClientRect().bottom;
+    const mv = (ev: PointerEvent) => setProblemsH(Math.max(100, Math.min(window.innerHeight * 0.7, bottom - ev.clientY)));
+    const up = () => (el.removeEventListener('pointermove', mv), el.removeEventListener('pointerup', up));
+    el.addEventListener('pointermove', mv);
+    el.addEventListener('pointerup', up);
+  };
   const rootList = tree.kids.root;
 
   return (
@@ -261,6 +293,14 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
 
       <section className="editor-pane" data-region="editor">
         <EditorGrid m={m} nodeFor={nodeFor} empty={<Welcome m={m} target={target} />} />
+        {problems && caps.admin && (
+          <>
+            <div className="hresizer" role="separator" aria-orientation="horizontal" aria-label="調整問題面板高度" onPointerDown={dragProblems} />
+            <div style={{ height: problemsH }} className="problems-wrap">
+              <ProblemsPanel m={m} active={activeTab?.node} onClose={() => setProblems(false)} />
+            </div>
+          </>
+        )}
       </section>
 
       <footer className="statusbar" data-region="statusbar">
@@ -269,6 +309,13 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
         </span>
         {activeTab?.dirty && <span className="sb-item warn">● 未儲存（{MOD}+S）</span>}
         <span className="spacer" />
+        {caps.admin && (
+          <button className="sb-item sb-btn sb-problems" onClick={() => setProblems((p) => !p)} title="問題面板（Ctrl+Shift+M）：靜態分析與重複程式碼">
+            <SevIcon s="error" /> {counts.error}
+            <SevIcon s="warning" /> {counts.warning}
+            <SevIcon s="perf" /> {counts.perf}
+          </button>
+        )}
         {activeTab && <span className="sb-item">{languageFor(activeTab.node.name)}</span>}
         <button className="sb-item sb-btn" onClick={() => m.setDialog({ t: 'settings' })} title="語意搜尋狀態">
           <Icon name="sparkle" size={12} /> {ragLabel(rag)}

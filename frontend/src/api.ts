@@ -189,6 +189,58 @@ async function raw(method: string, url: string, body?: unknown): Promise<Respons
   return res;
 }
 
+export type Severity = 'error' | 'warning' | 'perf' | 'info';
+
+export interface CodeRule {
+  id: string;
+  severity: Severity;
+  category: string;
+  title: string;
+  hint: string;
+}
+
+export interface CodeFinding {
+  node_id: string;
+  rule: string;
+  severity: Severity;
+  line: number;
+  col: number;
+  line_end: number;
+  message: string;
+  symbol: string | null;
+  path?: string;
+  name?: string;
+}
+
+export interface CodeFindings {
+  node: NodeInfo;
+  /** For a file: index state (results match the content when `sha256` equals the file's). */
+  index: { status: 'indexed' | 'skipped' | 'failed'; sha256: string; lang: string | null; detail: string | null; lines: number } | null;
+  findings: CodeFinding[];
+}
+
+export interface DuplicateSide {
+  id: string;
+  name: string;
+  path: string;
+  line_start: number;
+  line_end: number;
+}
+
+export interface CodeDuplicate {
+  a: DuplicateSide;
+  b: DuplicateSide;
+  tokens: number;
+}
+
+export interface CodeStatus {
+  state: string;
+  files: number;
+  pending: number;
+  by_lang: Record<string, number>;
+  findings: Partial<Record<Severity, number>>;
+}
+
 async function json<T>(method: string, url: string, body?: unknown): Promise<T> {
   const res = await raw(method, url, body);
   if (res.status === 204) return undefined as T;
@@ -259,6 +311,13 @@ export const api = {
   saveSettings: (s: Partial<UiSettings>) => json<UiSettings>('PUT', `${V}/settings`, s),
 
   ragStatus: () => json<RagStatus>('GET', `${V}/rag/status`),
+  codeStatus: () => json<CodeStatus>('GET', `${V}/code/status`),
+  codeRules: () => json<{ rules: CodeRule[] }>('GET', `${V}/code/rules`),
+  codeFindings: (nodeId?: string, severity?: Severity) =>
+    json<CodeFindings>('GET', `${V}/code/findings?${new URLSearchParams({ ...(nodeId ? { node_id: nodeId } : {}), ...(severity ? { severity } : {}) })}`),
+  codeDuplicates: (nodeId?: string) =>
+    json<{ node: NodeInfo; duplicates: CodeDuplicate[] }>('GET', `${V}/code/duplicates${nodeId ? `?node_id=${q(nodeId)}` : ''}`),
+  codeReindex: () => json<{ ok: boolean }>('POST', `${V}/code/reindex`),
   ragSearch: (query: string, k = 12) =>
     json<{ results: RagHit[] }>('GET', `${V}/rag/search?q=${q(query)}&k=${k}`),
   ragReindex: () => json<{ ok: boolean }>('POST', `${V}/rag/reindex`),

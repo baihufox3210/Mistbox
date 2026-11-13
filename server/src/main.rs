@@ -287,6 +287,7 @@ async fn serve(cfg: Config) -> anyhow::Result<()> {
         Some(r) => r.spawn(state.db.clone(), state.store.clone()),
         None => tracing::warn!("語意搜尋停用（MISTBOX_RAG_MODEL=off，或未以 embed feature 編譯）"),
     }
+    state.code.spawn(state.db.clone(), state.store.clone());
 
     // Background maintenance: blob GC and expired sessions.
     {

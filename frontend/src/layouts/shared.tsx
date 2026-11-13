@@ -105,7 +105,7 @@ export async function dropMove(m: DriveModel, ids: string[], dest: string) {
 }
 
 /** Editor hooks for a tab, memoised so editors don't re-register every render. */
-export function useTabHooks(m: DriveModel, tab: Tab | undefined, startEditing: boolean): EditorHooks | undefined {
+export function useTabHooks(m: DriveModel, tab: Tab | undefined, startEditing: boolean, diagnostics = false): EditorHooks | undefined {
   const id = tab?.node.id;
   const line = tab?.line;
   const { setDirty, updateNode, registerSaver, bump } = m;
@@ -114,13 +114,14 @@ export function useTabHooks(m: DriveModel, tab: Tab | undefined, startEditing: b
       id
         ? {
             startEditing,
+            diagnostics,
             line,
             onDirty: (d: boolean) => setDirty(id, d),
             onSaved: (n: NodeInfo) => (updateNode(n), bump()),
             register: (fn: (() => Promise<void>) | null) => registerSaver(id, fn),
           }
         : undefined,
-    [id, line, startEditing, setDirty, updateNode, registerSaver, bump],
+    [id, line, startEditing, diagnostics, setDirty, updateNode, registerSaver, bump],
   );
 }
 

@@ -11,6 +11,7 @@
 //! - `textview`  encoding-aware text preview
 //! - `latex`     resource collection + client for the isolated LaTeX worker
 //! - `rag`       local-embedding semantic search (indexer + vector search)
+//! - `code`      code index: symbols, static-analysis findings, duplicate code
 //! - `api`       HTTP handlers (`/api/v1`)
 //! - `import`    read-only source folder import (CLI)
 //! - `backup`    consistent online backup / restore / verify (CLI)
@@ -19,6 +20,7 @@ pub mod api;
 pub mod auth;
 pub mod authz;
 pub mod backup;
+pub mod code;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -45,16 +47,18 @@ pub struct AppState {
     pub limiter: Arc<auth::RateLimiter>,
     pub latex: Option<Arc<latex::LatexClient>>,
     pub rag: Option<Arc<rag::Rag>>,
+    pub code: Arc<code::index::CodeIndex>,
     /// Extra origin allowed in CSP `img-src` (the configured background image).
     pub csp_img_extra: Arc<RwLock<String>>,
 }
 
 impl AppState {
-    /// Nudge the semantic-search indexer after content changes.
+    /// Nudge the background indexers (semantic search, code index) after content changes.
     pub fn poke_rag(&self) {
         if let Some(r) = &self.rag {
             r.poke();
         }
+        self.code.poke();
     }
 
     pub async fn new(cfg: config::Config) -> anyhow::Result<Self> {
@@ -76,6 +80,7 @@ impl AppState {
             limiter: Arc::new(auth::RateLimiter::default()),
             latex,
             rag,
+            code: Arc::new(code::index::CodeIndex::new()),
             csp_img_extra: Arc::new(RwLock::new(api::settings::csp_origin(
                 bg.as_deref().unwrap_or(""),
             ))),
