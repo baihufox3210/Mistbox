@@ -9,6 +9,8 @@ import { MOD } from '../components/Shell';
 import { UploadPanel } from '../components/Uploads';
 import { languageFor } from '../fileTypes';
 import type { DriveModel } from '../state/useDrive';
+import { useCloseEditorShortcut } from '../state/useCloseEditorShortcut';
+import { preloadPreview } from '../preview/preload';
 import ProblemsPanel, { SevIcon, useActiveCounts } from '../components/ProblemsPanel';
 import { useCaps } from '../caps';
 import EditorGrid from './EditorGrid';
@@ -25,6 +27,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
   setSideOpen: (o: boolean) => void;
   targetRef: React.MutableRefObject<() => string>;
 }) {
+  useCloseEditorShortcut(m);
   const tree = useTree(m.version);
   const [selected, setSelected] = useState<string | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
@@ -87,6 +90,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
     setSelected(n.id);
     if (n.kind === 'dir') tree.toggle(n.id);
     else {
+      preloadPreview(n.name);
       m.openFile(n);
       setSideOpen(false);
     }
@@ -236,7 +240,8 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
                 }}
                 onDrop={(e) => n.kind === 'dir' && onDrop(e, n.id)}
                 onClick={() => activate(n)}
-                onFocus={() => setFocus(n.id)}
+                onPointerEnter={() => { if (n.kind === 'file') preloadPreview(n.name); }}
+                onFocus={() => { setFocus(n.id); if (n.kind === 'file') preloadPreview(n.name); }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

@@ -6,6 +6,7 @@ import { ShellOverlays, Topbar, useCommands } from './components/Shell';
 import DriveLayout from './layouts/DriveLayout';
 import IdeLayout from './layouts/IdeLayout';
 import { useDrive } from './state/useDrive';
+import { TextCacheProvider } from './state/textCache';
 import { applyBackground, getLayout, setLayout as persistLayout, type Layout } from './theme';
 
 type Auth = { state: 'loading' } | { state: 'out'; reason?: string } | { state: 'in'; username: string } | { state: 'error'; message: string };
@@ -74,6 +75,7 @@ function Workspace({ username, onLogout }: { username: string; onLogout: () => v
   }, []);
 
   return (
+    <TextCacheProvider version={m.version}>
     <div className={`app layout-${layout}`} data-region="app">
       <Topbar
         m={m}
@@ -94,6 +96,7 @@ function Workspace({ username, onLogout }: { username: string; onLogout: () => v
       )}
       <ShellOverlays m={m} commands={commands} layout={layout} setLayout={setLayout} />
     </div>
+    </TextCacheProvider>
   );
 }
 

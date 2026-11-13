@@ -386,7 +386,7 @@ function EditorGroup({
               <>{t.kind === 'diagnose' ? <Icon name="diagnose" size={15} /> : <FileIcon name={t.node.name} kind="file" size={15} />}</>
               {t.node.name}
             </button>
-            <button className="tab-x" aria-label={`關閉 ${t.node.name}`} onClick={() => m.closeTab(t.node.id)}>
+            <button className="tab-x" aria-label={`關閉 ${t.node.name}`} title={`關閉檔案（${MOD}+W / Alt+W）`} onClick={() => m.closeTab(t.node.id)}>
               {t.dirty ? <span className="dirty-dot">●</span> : <Icon name="close" size={12} />}
             </button>
           </div>

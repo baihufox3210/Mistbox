@@ -19,3 +19,14 @@ it('opens one temporary tab, excludes it from file URLs and closes without stora
   expect(result.current.tabs).toHaveLength(0);
   expect(info).not.toHaveBeenCalled();
 });
+
+it('retains a dirty file and opens confirmation when closing through the shared action', async () => {
+  vi.spyOn(api, 'children').mockResolvedValue({ node: { id: 'root' }, children: [], breadcrumbs: [] } as never);
+  const { result } = renderHook(() => useDrive());
+  await act(async () => {});
+  act(() => result.current.openFile({ id: 'file', parent_id: 'root', name: 'main.c', kind: 'file', size: 0, mime: null, sha256: 'sha', sensitive: false, created_at: '', modified_at: '' }));
+  act(() => result.current.setDirty('file', true));
+  act(() => result.current.closeTab('file'));
+  expect(result.current.tabs).toHaveLength(1);
+  expect(result.current.dialog).toEqual({ t: 'confirm-close', id: 'file' });
+});

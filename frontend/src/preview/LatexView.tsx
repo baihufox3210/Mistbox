@@ -21,7 +21,7 @@ interface CompileState {
  * isolated TeX Live worker. Highlighting is never presented as rendering.
  */
 export default function LatexView({ node, editor }: { node: NodeInfo; editor?: EditorHooks }) {
-  const t = useText(node.id);
+  const t = useText(node.id, node.sha256);
   const [mode, setMode] = useState<Mode>('pdf');
   const [c, setC] = useState<CompileState>({ status: 'idle' });
 

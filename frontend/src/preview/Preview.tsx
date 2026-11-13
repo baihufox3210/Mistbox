@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, contentUrl, type NodeInfo } from '../api';
 import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { languageFor, previewKind } from '../fileTypes';
 import { formatDate, formatSize } from '../format';
 import { useCodeRules, useFileFindings } from '../state/codeFindings';
-import CodeView from './CodeView';
 import { Info } from './Info';
-import LatexView from './LatexView';
-import Markdown from './Markdown';
-import PdfView from './PdfView';
 import { EncodingSelect, TextGate, useEditing, useText, type EditorHooks } from './text';
+
+const CodeView = lazy(() => import('./CodeView'));
+const LatexView = lazy(() => import('./LatexView'));
+const Markdown = lazy(() => import('./Markdown'));
+const PdfView = lazy(() => import('./PdfView'));
 
 export { ErrorState };
 
@@ -28,7 +29,7 @@ export interface PreviewProps {
 }
 
 function MarkdownPreview({ node, onOpenPath, editor }: PreviewProps) {
-  const t = useText(node.id);
+  const t = useText(node.id, node.sha256);
   const [mode, setMode] = useState<'render' | 'source' | 'split'>(editor?.startEditing ? 'split' : 'render');
   return (
     <TextGate node={node} t={t}>
@@ -101,7 +102,7 @@ function MarkdownBody({
 }
 
 function CodePreview({ node, editor }: PreviewProps) {
-  const t = useText(node.id);
+  const t = useText(node.id, node.sha256);
   return <TextGate node={node} t={t}>{(d) => <CodeBody node={node} d={d} t={t} editor={editor} />}</TextGate>;
 }
 
@@ -219,7 +220,7 @@ export default function Preview(props: PreviewProps) {
           </a>
         </div>
       )}
-      <div className="preview-body">{body}</div>
+      <div className="preview-body"><Suspense fallback={<div className="state"><span className="spinner" /> 載入預覽器…</div>}>{body}</Suspense></div>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, ApiError, contentUrl, errorText, type NodeInfo, type TextPreview } from '../api';
 import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
@@ -6,26 +6,34 @@ import { formatSize } from '../format';
 import { Info } from './Info';
 import { useCaps } from '../caps';
 import { discardDraft, getDraft, putDraft } from '../state/drafts';
+import { TextCacheContext } from '../state/textCache';
 
-export function useText(id: string) {
-  const [data, setData] = useState<TextPreview | null>(null);
-  const [error, setError] = useState<ApiError | null>(null);
+export function useText(id: string, sha?: string | null) {
+  const cache = useContext(TextCacheContext);
   const [encoding, setEncoding] = useState<string | undefined>();
   const [partial, setPartial] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const key = JSON.stringify([id, sha, encoding, partial]);
+  const [loadedKey, setLoadedKey] = useState(key);
+  const [data, setData] = useState<TextPreview | null>(() => sha ? cache?.peek(key) ?? null : null);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [loading, setLoading] = useState(!data);
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    const cached = sha ? cache?.peek(key) ?? null : null;
+    setLoadedKey(key);
+    setData(cached);
+    setLoading(!cached);
     setError(null);
-    api.text(id, encoding, partial).then(
+    const fetch = () => api.text(id, encoding, partial);
+    const request = cache && sha ? cache.load(key, fetch) : fetch();
+    request.then(
       (d) => !cancelled && (setData(d), setLoading(false)),
       (e) => !cancelled && (setError(e instanceof ApiError ? e : new ApiError(0, 'unknown', String(e))), setLoading(false)),
     );
-    return () => {
-      cancelled = true;
-    };
-  }, [id, encoding, partial]);
-  return { data, error, loading, encoding, setEncoding, loadPartial: () => setPartial(true) };
+    return () => { cancelled = true; };
+  }, [cache, key, id, sha, encoding, partial]);
+  const current = loadedKey === key;
+  return { data: current ? data : null, error: current ? error : null, loading: !current || loading, encoding, setEncoding, loadPartial: () => setPartial(true) };
 }
 
 export type TextState = ReturnType<typeof useText>;

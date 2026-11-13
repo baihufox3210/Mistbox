@@ -88,6 +88,7 @@ docker compose exec app mistbox admin create --username admin
   - 分頁列右側的按鈕，或 `Ctrl+\`（向右）、`Ctrl+Alt+\`（向下）。
   - 把分頁或檔案總管裡的檔案拖到群組中央即加入該群組，拖到邊緣就在那一側分割。
   - `Ctrl+1`～`9` 切換群組；拖曳分隔線調整大小。
+- **關閉目前檔案**：`Ctrl+W`（macOS：`Cmd+W`），或 `Alt+W`；未儲存時先提示。部分瀏覽器保留 `Ctrl+W`，不會將事件交給網頁，請改用 `Alt+W` 或分頁的關閉按鈕。
 - **問題面板**（`Ctrl+Shift+M`，或點狀態列的 ⊗ ⚠ ⚡ 計數）：靜態分析與重複程式碼，見〈3c〉。
 
 ### 兩種版面共通
