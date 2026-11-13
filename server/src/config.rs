@@ -4,11 +4,21 @@ use std::path::PathBuf;
 #[derive(clap::Args, Clone, Debug)]
 pub struct Config {
     /// Directory holding the SQLite database and blob store.
-    #[arg(long, env = "MISTBOX_DATA_DIR", default_value = "./data", global = true)]
+    #[arg(
+        long,
+        env = "MISTBOX_DATA_DIR",
+        default_value = "./data",
+        global = true
+    )]
     pub data_dir: PathBuf,
 
     /// Address to listen on.
-    #[arg(long, env = "MISTBOX_BIND", default_value = "127.0.0.1:8080", global = true)]
+    #[arg(
+        long,
+        env = "MISTBOX_BIND",
+        default_value = "127.0.0.1:8080",
+        global = true
+    )]
     pub bind: String,
 
     /// Directory with the built frontend (index.html + assets). Empty = API only.
@@ -28,7 +38,12 @@ pub struct Config {
     pub cookie_secure: bool,
 
     /// Session lifetime in hours.
-    #[arg(long, env = "MISTBOX_SESSION_TTL_HOURS", default_value_t = 12, global = true)]
+    #[arg(
+        long,
+        env = "MISTBOX_SESSION_TTL_HOURS",
+        default_value_t = 12,
+        global = true
+    )]
     pub session_ttl_hours: i64,
 
     /// Base URL of the isolated LaTeX worker (e.g. http://latex:8090). Empty disables PDF compilation.
@@ -44,37 +59,66 @@ pub struct Config {
     pub trust_proxy: bool,
 
     /// Login attempts allowed per client IP per 15 minutes.
-    #[arg(long, env = "MISTBOX_LOGIN_ATTEMPTS", default_value_t = 10, global = true)]
+    #[arg(
+        long,
+        env = "MISTBOX_LOGIN_ATTEMPTS",
+        default_value_t = 10,
+        global = true
+    )]
     pub login_attempts: u32,
 
     /// Directory with admin-provided theme files (custom.css, background images), served at /theme/.
     #[arg(long, env = "MISTBOX_THEME_DIR", default_value = "", global = true)]
     pub theme_dir: String,
 
-    /// Embedding model for semantic search: multilingual-e5-small (default when built with
-    /// the `embed` feature), multilingual-e5-base, bge-small-zh, paraphrase-multilingual-minilm,
-    /// `hash` (lexical test embedder) or `off`.
+    /// Embedding model for semantic search: multilingual-e5-small-q8 (int8, default when built
+    /// with the `embed` feature), multilingual-e5-small, multilingual-e5-base, bge-small-zh,
+    /// paraphrase-multilingual-minilm, `hash` (lexical test embedder) or `off`.
     #[arg(long, env = "MISTBOX_RAG_MODEL", default_value = "auto", global = true)]
     pub rag_model: String,
 
     /// Directory holding downloaded embedding models (baked into the Docker image).
-    #[arg(long, env = "MISTBOX_RAG_MODEL_DIR", default_value = "./models", global = true)]
+    #[arg(
+        long,
+        env = "MISTBOX_RAG_MODEL_DIR",
+        default_value = "./models",
+        global = true
+    )]
     pub rag_model_dir: std::path::PathBuf,
 
     /// Files larger than this are not indexed for semantic search.
     #[arg(long, env = "MISTBOX_RAG_MAX_FILE_BYTES", default_value_t = 1024 * 1024, global = true)]
     pub rag_max_file_bytes: u64,
 
+    /// PDFs larger than this are not indexed (text is extracted in the sandboxed worker).
+    #[arg(long, env = "MISTBOX_RAG_MAX_PDF_BYTES", default_value_t = 32 * 1024 * 1024, global = true)]
+    pub rag_max_pdf_bytes: u64,
+
     /// CPU threads used by the embedding model.
-    #[arg(long, env = "MISTBOX_RAG_THREADS", default_value_t = 4, global = true)]
+    #[arg(long, env = "MISTBOX_RAG_THREADS", default_value_t = 2, global = true)]
     pub rag_threads: usize,
+
+    /// Unload the embedding model after this many idle seconds (0 = keep it loaded).
+    /// It is reloaded on the next search or indexing pass (about a second).
+    #[arg(
+        long,
+        env = "MISTBOX_RAG_IDLE_UNLOAD_SECS",
+        default_value_t = 300,
+        global = true
+    )]
+    pub rag_idle_unload_secs: u64,
 
     /// Days before items in the recycle bin are permanently deleted (0 = never).
     #[arg(long, env = "MISTBOX_TRASH_DAYS", default_value_t = 30, global = true)]
     pub trash_days: i64,
 
     /// API requests allowed per minute per API key / session / IP.
-    #[arg(long, env = "MISTBOX_API_RATE_PER_MIN", default_value_t = 1200, global = true)]
+    #[arg(
+        long,
+        env = "MISTBOX_API_RATE_PER_MIN",
+        default_value_t = 1200,
+        global = true
+    )]
     pub api_rate_per_min: u32,
 }
 
@@ -99,7 +143,9 @@ impl Config {
             rag_model: "hash".into(),
             rag_model_dir: "./models".into(),
             rag_max_file_bytes: 256 * 1024,
+            rag_max_pdf_bytes: 4 * 1024 * 1024,
             rag_threads: 1,
+            rag_idle_unload_secs: 0,
         }
     }
 }

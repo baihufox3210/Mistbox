@@ -1,8 +1,8 @@
 use std::{io::IsTerminal, net::SocketAddr, time::Duration};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use clap::{Parser, Subcommand};
-use mistbox::{api, auth, backup, config::Config, db, import, nodes, storage::Store, AppState};
+use mistbox::{AppState, api, auth, backup, config::Config, db, import, nodes, storage::Store};
 
 #[derive(Parser)]
 #[command(name = "mistbox", version, about = "Mistbox private cloud drive")]
@@ -53,7 +53,7 @@ enum Cmd {
 enum RagCmd {
     /// Download an embedding model into MISTBOX_RAG_MODEL_DIR (used at image build time).
     DownloadModel {
-        #[arg(default_value = "multilingual-e5-small")]
+        #[arg(default_value = mistbox::rag::DEFAULT_MODEL)]
         model: String,
     },
     /// Clear the index; the running server rebuilds it in the background.
@@ -109,7 +109,8 @@ async fn main() -> anyhow::Result<()> {
     unsafe { libc::umask(0o002) };
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,sqlx=warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "info,sqlx=warn".into()),
         )
         .with_writer(std::io::stderr)
         .init();
@@ -132,8 +133,13 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Admin(cmd) => {
             let pool = db::open(&cfg.data_dir).await?;
             match cmd {
-                AdminCmd::Create { username, password_stdin } => {
-                    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(&pool).await?;
+                AdminCmd::Create {
+                    username,
+                    password_stdin,
+                } => {
+                    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+                        .fetch_one(&pool)
+                        .await?;
                     if n > 0 {
                         bail!("管理者已存在；請改用 `admin reset-password`");
                     }
@@ -145,11 +151,15 @@ async fn main() -> anyhow::Result<()> {
                     auth::create_user(&pool, username, &pw).await?;
                     eprintln!("已建立管理者 {username}");
                 }
-                AdminCmd::ResetPassword { username, password_stdin } => {
-                    let id: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
-                        .bind(&username)
-                        .fetch_optional(&pool)
-                        .await?;
+                AdminCmd::ResetPassword {
+                    username,
+                    password_stdin,
+                } => {
+                    let id: Option<i64> =
+                        sqlx::query_scalar("SELECT id FROM users WHERE username = ?")
+                            .bind(&username)
+                            .fetch_optional(&pool)
+                            .await?;
                     let id = id.context("找不到此帳號")?;
                     let pw = read_password(password_stdin)?;
                     auth::set_password(&pool, id, &pw).await?;
@@ -181,7 +191,8 @@ async fn main() -> anyhow::Result<()> {
             backup::backup(&pool, &Store::new(&cfg.data_dir)?, &output).await
         }
         Cmd::Restore { input, force } => {
-            tokio::task::spawn_blocking(move || backup::restore(&cfg.data_dir, &input, force)).await??;
+            tokio::task::spawn_blocking(move || backup::restore(&cfg.data_dir, &input, force))
+                .await??;
             Ok(())
         }
         Cmd::Verify => {
@@ -195,7 +206,10 @@ async fn main() -> anyhow::Result<()> {
                 println!("損毀 (SHA-256 不符): {p}");
             }
             if !r.orphans.is_empty() {
-                println!("未被引用的 blob: {} 個（可執行 `mistbox gc` 清除）", r.orphans.len());
+                println!(
+                    "未被引用的 blob: {} 個（可執行 `mistbox gc` 清除）",
+                    r.orphans.len()
+                );
             }
             if r.missing.is_empty() && r.corrupt.is_empty() {
                 println!("完整性檢查通過");
@@ -207,7 +221,8 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Rag(cmd) => match cmd {
             RagCmd::DownloadModel { model } => {
                 let dir = cfg.rag_model_dir.clone();
-                tokio::task::spawn_blocking(move || mistbox::rag::download_model(&model, &dir)).await?
+                tokio::task::spawn_blocking(move || mistbox::rag::download_model(&model, &dir))
+                    .await?
             }
             RagCmd::Models => {
                 for (name, desc, _, _) in mistbox::rag::MODELS {
@@ -242,7 +257,11 @@ async fn main() -> anyhow::Result<()> {
             for b in &r.orphans {
                 store.remove_blob(b).await;
             }
-            println!("已清除 {} 個待刪除與 {} 個未被引用的 blob", n, r.orphans.len());
+            println!(
+                "已清除 {} 個待刪除與 {} 個未被引用的 blob",
+                n,
+                r.orphans.len()
+            );
             Ok(())
         }
     }
@@ -252,9 +271,13 @@ async fn serve(cfg: Config) -> anyhow::Result<()> {
     let bind: SocketAddr = cfg.bind.parse().context("MISTBOX_BIND")?;
     let state = AppState::new(cfg).await?;
     state.store.clean_tmp();
-    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(&state.db).await?;
+    let users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+        .fetch_one(&state.db)
+        .await?;
     if users == 0 {
-        tracing::warn!("尚未建立管理者。請執行：docker compose exec app mistbox admin create --username <name>");
+        tracing::warn!(
+            "尚未建立管理者。請執行：docker compose exec app mistbox admin create --username <name>"
+        );
     }
     if state.latex.is_none() {
         tracing::warn!("MISTBOX_LATEX_URL 未設定：LaTeX PDF 編譯停用（仍可預覽原始碼）");
@@ -275,7 +298,9 @@ async fn serve(cfg: Config) -> anyhow::Result<()> {
                 }
                 if st.cfg.trash_days > 0 {
                     match nodes::purge_trash(&st.db, st.cfg.trash_days).await {
-                        Ok(n) if n > 0 => tracing::info!(items = n, "recycle bin: expired items deleted"),
+                        Ok(n) if n > 0 => {
+                            tracing::info!(items = n, "recycle bin: expired items deleted")
+                        }
                         Err(e) => tracing::warn!(error = %e.message, "recycle bin purge failed"),
                         _ => {}
                     }
@@ -292,14 +317,18 @@ async fn serve(cfg: Config) -> anyhow::Result<()> {
     let app = api::router(state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(%bind, "mistbox listening");
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(async {
-            let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {},
-                _ = term.recv() => {},
-            }
-        })
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let mut term =
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {},
+            _ = term.recv() => {},
+        }
+    })
+    .await?;
     Ok(())
 }

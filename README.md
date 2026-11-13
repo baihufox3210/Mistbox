@@ -4,10 +4,10 @@
 
 - 後端：Rust（Axum + Tokio），SQLite 保存帳號、目錄、檔案中繼資料與 API Key
 - 前端：React + TypeScript（CodeMirror 6、react-markdown + KaTeX、pdf.js），兩種版面：雲端硬碟／IDE
-- 語意搜尋：本地 ONNX 向量模型（fastembed，multilingual-e5-small），內建於 app 映像
+- 語意搜尋：本地 ONNX 向量模型（multilingual-e5-small int8 量化版），內建於 app 映像；閒置時自動卸載
 - 部署：Docker 多階段建置 + Docker Compose，共兩個容器
   - `app`：API 與前端靜態檔
-  - `latex`：隔離的 TeX Live 編譯器，沒有資料卷，只連 internal 網路
+  - `latex`：隔離的沙箱 worker（TeX Live 編譯 LaTeX、poppler 擷取 PDF 文字），沒有資料卷，只連 internal 網路
 
 ```
 .
@@ -172,28 +172,39 @@ Firefox 會攔截 `Ctrl+Shift+P`（開啟隱私視窗），請改用 `F1` 或 `C
 ## 3a. 語意搜尋（RAG 檢索，本地模型）
 
 - **模型**：
-  - 預設為 `intfloat/multilingual-e5-small`（384 維，支援中英文等 100 多種語言）。
-  - 以 fastembed + ONNX Runtime 在 app 容器內用 CPU 執行。
-  - 模型在**建置映像時下載**並放入映像（約 470 MB）。執行時設定 `HF_HUB_OFFLINE=1`，**不連網、不把任何內容送到外部**。
+  - 預設為 `multilingual-e5-small-q8`：`intfloat/multilingual-e5-small` 的 int8 量化版（ONNX 檔約 118 MB，384 維，支援中英文等 100 多種語言）。與原始 fp32 版相比，向量的 cosine 相似度約 0.997，排序結果幾乎相同。
+  - 在 app 容器內用 CPU 執行（ONNX Runtime）。分詞器是自行實作的輕量 Unigram 編碼器，輸出與 Hugging Face tokenizers 逐一比對完全一致，但常駐記憶體從約 300 MB 降到約 20 MB。
+  - 模型在**建置映像時下載**：固定版本，並驗證 SHA-256，之後放入映像。執行時設定 `HF_HUB_OFFLINE=1`，**不連網、不把任何內容送到外部**。
 - **索引**：
-  - 背景程序會處理文字類檔案（程式碼、Markdown、LaTeX、純文字等，預設上限 1 MiB）：解碼、依行切成約 900 字的片段、向量化，存進 SQLite（`rag_chunks`）。
+  - **文字類檔案**（程式碼、Markdown、LaTeX、純文字等，預設上限 1 MiB）：解碼後依行切成約 500 字的片段，向量化後存進 SQLite（`rag_chunks`）。
+  - **PDF**（預設上限 32 MiB）：交給隔離的 `latex` worker 容器，以 poppler 的 `pdftotext` 擷取文字，再按頁切成片段，搜尋結果會標示頁碼。
+    - 不受信任的 PDF 不會在 app 容器內解析，並受到 worker 的時間、CPU 與記憶體限制。
+    - 加密、損壞或掃描型（沒有文字層）的 PDF 會略過，並在設定頁的「略過」中計數。目前沒有 OCR。
   - 依 SHA-256 判斷是否需要重新索引。上傳、編輯、匯入（包括 CLI 匯入）後，約 30 秒內自動更新；刪除的檔案會一併移除。
-  - 圖片、壓縮檔、二進位檔會略過。PDF 與 Office 文件目前不擷取文字。
+  - 圖片、壓縮檔、Office 文件與其他二進位檔會略過。
 - **權限**：
   - 敏感檔（`.env`、私鑰、憑證）**永不索引**。
   - 每筆搜尋結果都依呼叫者重新驗證權限：API Key 只會看到自己範圍內的結果，而且需要 `read` 權限。
 - **使用**：
-  - 網頁：`Ctrl+Shift+F`，或在指令面板輸入 `? 你的問題`。
-  - API：`/api/v1/rag/search`（片段＋相似度＋行號），以及 `/api/v1/rag/context`（產生帶 `[n] 路徑:行號` 出處的段落，可直接貼給本地或外部的 LLM 當作 RAG 上下文）。詳見 [docs/API.md](docs/API.md)。
+  - 網頁：`Ctrl+Shift+F`，或在指令面板輸入 `? 你的問題`。點選 PDF 的結果會直接跳到該頁。
+  - API：`/api/v1/rag/search`（片段、相似度，以及行號或頁碼，見 `unit`），以及 `/api/v1/rag/context`（產生帶 `[n] 路徑:行號` 出處的段落，可直接貼給本地或外部的 LLM 當作 RAG 上下文）。詳見 [docs/API.md](docs/API.md)。
 - **管理**：
-  - 設定頁可看到模型、索引進度，並可「重建索引」。
+  - 設定頁可看到模型、是否已載入、索引進度，並可「重建索引」。
   - CLI：`docker compose exec app mistbox rag status`、`mistbox rag reindex`、`mistbox rag models`。
-- **換模型**：可選 `multilingual-e5-base`（較準）、`bge-small-zh`（中文為主）、`paraphrase-multilingual-minilm`（最小）。
+- **換模型**：可選 `multilingual-e5-small`（原始 fp32，約 470 MB）、`multilingual-e5-base`（較準、較大）、`bge-small-zh`（中文為主）、`paraphrase-multilingual-minilm`（最小）。
   - 在 `.env` 設定 `MISTBOX_RAG_MODEL=<名稱>` 後執行 `docker compose up -d --build`，索引會自動重建。
   - 設為 `off` 則完全停用，映像也不會包含模型。
-- **資源**：
-  - app 容器含模型實測約 1.5 GiB（ONNX Runtime 會保留索引時的峰值記憶體）。
-  - CPU 執行緒數由 `MISTBOX_RAG_THREADS` 控制（預設 4）。
+- **記憶體**（預設模型，實測）：
+
+  | 狀態 | app 容器 |
+  |---|---|
+  | 模型閒置已卸載（預設 5 分鐘無使用） | 約 50 MB |
+  | 模型已載入／索引中 | 約 250–300 MB |
+  | 上一版（fp32 + HF tokenizer，常駐） | 約 1.5 GB |
+
+  - 為了壓低記憶體，ONNX Runtime 的記憶體池（arena）已關閉，每段文字也逐一推論。
+  - 模型卸載後，下次搜尋或索引時會自動重新載入，約需 1 秒。閒置時間用 `MISTBOX_RAG_IDLE_UNLOAD_SECS` 調整，設為 0 代表常駐。
+  - CPU 執行緒數由 `MISTBOX_RAG_THREADS` 控制（預設 2）。
   - 搜尋是對記憶體中的向量做暴力比對，個人規模（數萬個片段）只需數毫秒。
 
 這裡只做「檢索」（找出相關段落）。沒有內建 LLM 生成回答；要做問答，請把 `/rag/context` 的輸出交給你自己的模型。
@@ -486,8 +497,15 @@ curl -sS -H "$H" -OJ "https://drive.example.com/api/v1/fs/download?path=/report.
 
 ```bash
 # 後端
-cd server && cargo test                      # 單元＋整合測試（API、權限、匯入、備份）
+cd server && cargo test                      # 單元＋整合測試（API、權限、匯入、備份、PDF 索引）
 MISTBOX_DATA_DIR=/tmp/mb MISTBOX_STATIC_DIR=../frontend/dist cargo run -- serve
+
+# 本機使用真正的向量模型（預設測試用的是詞彙雜湊）
+cargo build --release --features embed
+MISTBOX_RAG_MODEL_DIR=./models target/release/mistbox rag download-model
+# 輕量分詞器與 Hugging Face tokenizers 的逐一比對（可指定任意文字資料夾當語料）
+MISTBOX_TEST_TOKENIZER=$(find models -name tokenizer.json | head -1) MISTBOX_TEST_CORPUS=.. \
+  cargo test --release --features embed --lib unigram
 
 # 前端
 cd frontend && npm ci && npm test && npm run build

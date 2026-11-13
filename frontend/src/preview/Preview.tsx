@@ -124,7 +124,7 @@ function CodeBody({ node, d, t, editor }: { node: NodeInfo; d: import('../api').
   );
 }
 
-function PdfPreview({ node }: PreviewProps) {
+function PdfPreview({ node, editor }: PreviewProps) {
   const [data, setData] = useState<ArrayBuffer | null>(null);
   const [error, setError] = useState<unknown>(null);
   const load = useCallback(() => {
@@ -137,7 +137,7 @@ function PdfPreview({ node }: PreviewProps) {
   if (node.size > PDF_PREVIEW_MAX) return <Info node={node} reason={`PDF 超過 ${formatSize(PDF_PREVIEW_MAX)}，請下載後閱讀。`} />;
   if (error) return <ErrorState error={error} node={node} retry={load} />;
   if (!data) return <div className="state"><span className="spinner" /> 載入 PDF…</div>;
-  return <PdfView data={data} />;
+  return <PdfView data={data} page={editor?.line} />;
 }
 
 function MediaPreview({ node, kind }: PreviewProps & { kind: 'image' | 'audio' | 'video' }) {

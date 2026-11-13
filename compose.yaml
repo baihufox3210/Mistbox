@@ -12,7 +12,7 @@ services:
       network: "${MISTBOX_BUILD_NETWORK:-default}"
       args:
         # Embedding model baked into the image for semantic search (see `mistbox rag models`).
-        EMBED_MODEL: ${MISTBOX_RAG_MODEL:-multilingual-e5-small}
+        EMBED_MODEL: ${MISTBOX_RAG_MODEL:-multilingual-e5-small-q8}
     image: mistbox-app:local
     restart: unless-stopped
     ports:
@@ -29,7 +29,9 @@ services:
       MISTBOX_API_RATE_PER_MIN: ${MISTBOX_API_RATE_PER_MIN:-1200}
       MISTBOX_TRASH_DAYS: ${MISTBOX_TRASH_DAYS:-30}
       MISTBOX_RAG_MAX_FILE_BYTES: ${MISTBOX_RAG_MAX_FILE_BYTES:-1048576}
-      MISTBOX_RAG_THREADS: ${MISTBOX_RAG_THREADS:-4}
+      MISTBOX_RAG_MAX_PDF_BYTES: ${MISTBOX_RAG_MAX_PDF_BYTES:-33554432}
+      MISTBOX_RAG_THREADS: ${MISTBOX_RAG_THREADS:-2}
+      MISTBOX_RAG_IDLE_UNLOAD_SECS: ${MISTBOX_RAG_IDLE_UNLOAD_SECS:-300}
       RUST_LOG: ${RUST_LOG:-info,sqlx=warn,ort=warn}
     volumes:
       - mistbox-data:/data          # SQLite DB + file blobs (the only writable path)
@@ -61,6 +63,8 @@ services:
       LATEX_MEMORY_MB: ${LATEX_MEMORY_MB:-1536}
       LATEX_MAX_OUTPUT_MB: ${LATEX_MAX_OUTPUT_MB:-50}
       LATEX_CONCURRENCY: ${LATEX_CONCURRENCY:-2}
+      PDF_TIMEOUT_SECS: ${PDF_TIMEOUT_SECS:-60}     # text extraction for semantic search
+      PDF_MAX_PAGES: ${PDF_MAX_PAGES:-2000}
     # No volumes: the worker only sees the files sent for each job.
     read_only: true
     tmpfs:

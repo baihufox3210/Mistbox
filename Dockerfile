@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build. Targets:
 #   app   – Rust server (API + static frontend), non-root, no TeX
-#   latex – isolated LaTeX worker (TeX Live), non-root, no data volume
+#   latex – isolated sandbox worker: LaTeX compile (TeX Live) and PDF text
+#           extraction (poppler), non-root, no data volume
 
 ############################ frontend
 FROM node:24-trixie-slim AS web
@@ -28,7 +29,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 ############################ embedding model (downloaded at build time only)
 FROM rust AS model
-ARG EMBED_MODEL=multilingual-e5-small
+ARG EMBED_MODEL=multilingual-e5-small-q8
 RUN mkdir -p /models && if [ "$EMBED_MODEL" != off ]; then \
       MISTBOX_RAG_MODEL_DIR=/models mistbox rag download-model "$EMBED_MODEL"; fi
 
@@ -42,7 +43,7 @@ RUN apt-get update \
 RUN groupadd -g 10001 mistbox \
  && useradd -u 10001 -g 10001 -M -d /nonexistent -s /usr/sbin/nologin mistbox \
  && mkdir -p /data && chown 10001:10001 /data && chmod 2775 /data
-ARG EMBED_MODEL=multilingual-e5-small
+ARG EMBED_MODEL=multilingual-e5-small-q8
 COPY --from=rust /usr/local/bin/mistbox /usr/local/bin/mistbox
 COPY --from=model /models /app/models
 COPY --from=web /web/dist /app/web
@@ -54,7 +55,8 @@ ENV MISTBOX_DATA_DIR=/data \
     MISTBOX_THEME_DIR=/app/theme \
     MISTBOX_RAG_MODEL=${EMBED_MODEL} \
     MISTBOX_RAG_MODEL_DIR=/app/models \
-    HF_HUB_OFFLINE=1
+    HF_HUB_OFFLINE=1 \
+    MALLOC_ARENA_MAX=2
 USER 10001:10001
 VOLUME ["/data"]
 EXPOSE 8080
@@ -67,7 +69,7 @@ FROM debian:trixie-slim AS latex
 # downloaded while compiling untrusted documents.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      tini fontconfig \
+      tini fontconfig poppler-utils poppler-data \
       texlive-xetex texlive-latex-base texlive-latex-recommended texlive-latex-extra \
       texlive-fonts-recommended texlive-lang-chinese texlive-lang-cjk \
       texlive-science texlive-pictures texlive-plain-generic \

@@ -13,10 +13,13 @@ clap = { version = "4.6.7", features = ["derive", "env"] }
 encoding_rs = "0.8.44"
 fastembed = { version = "7.7", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"], optional = true }
 futures-util = "0.3.34"
+hf-hub = { version = "0.5.0", default-features = false, optional = true }
 getrandom = "0.4.3"
 hex = "0.4.3"
 libc = "0.2.191"
 mime_guess = "2.0.5"
+# Same version fastembed uses; only for CPU execution-provider options (memory arena off).
+ort = { version = "=2.0.0-rc.15", default-features = false, optional = true }
 percent-encoding = "2.3.2"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["stream"] }
@@ -28,6 +31,8 @@ sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio
 subtle = "2.6.1"
 tar = "0.4.46"
 thiserror = "2.0.21"
+# Same version fastembed uses; normalizer / pre-tokenizer for our light Unigram encoder.
+tokenizers = { version = "0.23.2", default-features = false, optional = true }
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
 tower-http = { version = "0.7.1", features = ["fs", "trace", "limit", "set-header"] }
@@ -50,4 +55,4 @@ walkdir = { version = "2.5.0", default-features = false }
 [features]
 default = []
 # Local ONNX embedding model for semantic search (enabled in the Docker image).
-embed = ["dep:fastembed"]
+embed = ["dep:fastembed", "dep:hf-hub", "dep:ort", "dep:tokenizers"]

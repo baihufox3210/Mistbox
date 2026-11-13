@@ -109,8 +109,8 @@ Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8080/api
 | GET | `/nodes/{id}/latex/pdf` | read | 取得最近一次編譯（內容未變更）的 PDF |
 | PUT | `/nodes/{id}/content` | write | **覆寫內容**（編輯器使用）。必須帶 `If-Match: "<目前版本的 sha256>"`：缺少時回 428，版本不符時回 412（`version_conflict`），不會覆寫 |
 | GET | `/rag/status` | 任一 | 語意搜尋狀態：模型、已索引檔案數、片段數、待處理數 |
-| GET | `/rag/search?q=…&k=10` | read | 語意搜尋（本地向量模型）。每個檔案最多 3 個片段：`{results:[{node, score, seq, line_start, line_end, text}]}` |
-| GET | `/rag/context?q=…&k=5&max_chars=6000` | read | 產生給 LLM 的 RAG 上下文：`{context:"[1] /path:L1-L20\n…", sources:[…]}` |
+| GET | `/rag/search?q=…&k=10` | read | 語意搜尋（本地向量模型，含 PDF 內文）。每個檔案最多 3 個片段：`{results:[{node, score, seq, line_start, line_end, unit, text}]}`；`unit` 為 `line`（行號）或 `page`（PDF 頁碼，此時 line_start = line_end = 頁碼） |
+| GET | `/rag/context?q=…&k=5&max_chars=6000` | read | 產生給 LLM 的 RAG 上下文：`{context:"[1] /path:1-20\n…", sources:[…]}`（PDF 為 `/path.pdf:p.3`） |
 
 管理者專用（只限 session，須帶 CSRF）：
 

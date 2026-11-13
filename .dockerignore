@@ -7,3 +7,4 @@ frontend/public/pdfjs
 backups
 data
 *.tar
+**/models

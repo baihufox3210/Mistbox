@@ -72,6 +72,10 @@ export interface RagStatus {
   pending?: number;
   skipped?: number;
   failed?: number;
+  /** The model is unloaded after a few idle minutes and reloaded on demand. */
+  model_loaded?: boolean;
+  /** PDF text extraction (sandboxed worker) is configured. */
+  pdf?: boolean;
 }
 
 export interface RagHit {
@@ -80,6 +84,8 @@ export interface RagHit {
   seq: number;
   line_start: number;
   line_end: number;
+  /** What line_start/line_end count: lines, or pages for PDFs. */
+  unit: 'line' | 'page';
   text: string;
 }
 

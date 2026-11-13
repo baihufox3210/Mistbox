@@ -107,7 +107,11 @@ export default function CommandPalette({
         key: `h${i}`,
         kind: 'hit' as const,
         label: h.node.name,
-        sub: `${h.node.path} · 第 ${h.line_start}–${h.line_end} 行 · 相似度 ${(h.score * 100).toFixed(0)}%`,
+        sub: `${h.node.path} · ${
+          h.unit === 'page'
+            ? `第 ${h.line_start} 頁`
+            : `第 ${h.line_start}–${h.line_end} 行`
+        } · 相似度 ${(h.score * 100).toFixed(0)}%`,
         snippet: h.text.length > 280 ? h.text.slice(0, 280) + '…' : h.text,
         icon: <FileIcon name={h.node.name} kind="file" />,
         run: () => onOpenFile(h.node, h.line_start),

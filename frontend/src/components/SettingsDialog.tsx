@@ -152,7 +152,12 @@ export default function SettingsDialog({
                 <dd>
                   {{ loading: '載入模型中', ready: '就緒', indexing: '索引中', error: '錯誤' }[rag.state ?? 'loading']}
                   {rag.error && <span className="err"> — {rag.error}</span>}
+                  {rag.state !== 'error' && rag.model_loaded === false && (
+                    <span className="muted">（模型閒置已卸載以節省記憶體，下次搜尋時自動載入）</span>
+                  )}
                 </dd>
+                <dt>PDF</dt>
+                <dd>{rag.pdf ? '會擷取 PDF 文字（於隔離的 worker 容器中解析）' : '未啟用（需要 LaTeX / PDF worker）'}</dd>
                 <dt>已索引</dt>
                 <dd>
                   {rag.indexed_files} 個檔案 · {rag.chunks} 個片段
@@ -161,7 +166,7 @@ export default function SettingsDialog({
                 <dd>{rag.pending}</dd>
                 <dt>略過 / 失敗</dt>
                 <dd>
-                  {rag.skipped}（非文字、過大或空白） / {rag.failed}
+                  {rag.skipped}（非文字、過大、空白、加密或掃描型 PDF） / {rag.failed}
                 </dd>
               </dl>
               <p className="muted small">敏感檔（.env、私鑰等）不會被索引；搜尋結果依登入者或 API Key 權限過濾。按 Ctrl+Shift+F 或在指令面板輸入 ? 開始搜尋。</p>

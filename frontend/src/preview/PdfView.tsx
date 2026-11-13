@@ -6,8 +6,9 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
 /** Renders PDF bytes with pdf.js onto canvases (no browser plugin, no scripts in the PDF). */
-export default function PdfView({ data }: { data: ArrayBuffer }) {
+export default function PdfView({ data, page }: { data: ArrayBuffer; page?: number }) {
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
+  const pages = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
   const [scale, setScale] = useState(1.2);
 
@@ -33,6 +34,19 @@ export default function PdfView({ data }: { data: ArrayBuffer }) {
     };
   }, [data]);
 
+  // Jump to a page (semantic-search hit). Page sizes arrive asynchronously, so
+  // re-align once more after the first layout pass.
+  useEffect(() => {
+    if (!doc || !page || page < 1 || page > doc.numPages) return;
+    const go = () => pages.current?.querySelector(`[data-page="${page}"]`)?.scrollIntoView({ block: 'start' });
+    const t1 = setTimeout(go, 50);
+    const t2 = setTimeout(go, 600);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [doc, page]);
+
   if (error) return <div className="state error">PDF 無法顯示：{error}</div>;
   if (!doc) return <div className="state"><span className="spinner" /> 載入 PDF…</div>;
   return (
@@ -44,7 +58,7 @@ export default function PdfView({ data }: { data: ArrayBuffer }) {
         <span className="muted">{Math.round(scale * 100)}%</span>
         <button className="btn ghost sm" onClick={() => setScale((s) => Math.min(3, s + 0.2))} aria-label="放大">＋</button>
       </div>
-      <div className="pdf-pages">
+      <div className="pdf-pages" ref={pages}>
         {Array.from({ length: doc.numPages }, (_, i) => (
           <PdfPage key={i} doc={doc} n={i + 1} scale={scale} />
         ))}
@@ -91,6 +105,7 @@ function PdfPage({ doc, n, scale }: { doc: PDFDocumentProxy; n: number; scale: n
     <canvas
       ref={canvas}
       className="pdf-page"
+      data-page={n}
       aria-label={`第 ${n} 頁`}
       style={size ? { width: size.w, height: size.h } : { width: 600, height: 800 }}
     />

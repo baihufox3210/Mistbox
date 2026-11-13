@@ -17,6 +17,7 @@ export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-mistbox-e2e}
 export MISTBOX_PORT=${MISTBOX_PORT:-18080}
 export LATEX_TIMEOUT_SECS=${LATEX_TIMEOUT_SECS:-20}
 export LATEX_CPU_SECS=${LATEX_CPU_SECS:-15}
+export MISTBOX_RAG_IDLE_UNLOAD_SECS=${MISTBOX_RAG_IDLE_UNLOAD_SECS:-20}
 BASE="http://127.0.0.1:${MISTBOX_PORT}"
 DC="docker compose"
 WORK=$(mktemp -d)
@@ -266,6 +267,32 @@ check ".env 等敏感檔不在索引中" bash -c "! sget '$BASE/api/v1/rag/searc
 skey=$(spost -H 'content-type: application/json' -d "{\"name\":\"rag\",\"permissions\":{\"list\":true,\"read\":true},\"scope_node_id\":\"$(node_id /samples/code)\"}" "$BASE/api/v1/keys" | jq -r .key)
 check "API Key 語意搜尋只回傳範圍內結果" bash -c "curl -sS -H 'Authorization: Bearer $skey' '$BASE/api/v1/rag/search?q=$(urlenc 'LaTeX PDF 編譯')&k=10' | jq -e '.results|length>0 and all(.node.path|startswith(\"/\") and (test(\"samples\")|not))' >/dev/null"
 check "RAG context 端點產生帶出處的段落" bash -c "curl -sS -H 'Authorization: Bearer $skey' '$BASE/api/v1/rag/context?q=python&k=2' | jq -e '.context|startswith(\"[1] /\")' >/dev/null"
+
+# PDF: index the Chinese PDF compiled above; text is extracted in the latex worker.
+mem_mib() {  # current memory of a compose service in MiB
+  docker stats --no-stream --format '{{.MemUsage}}' "$($DC ps -q "$1")" | awk '{v=$1; u=v; gsub(/[0-9.]/,"",u); gsub(/[^0-9.]/,"",v);
+    if (u=="GiB") v*=1024; else if (u=="KiB") v/=1024; else if (u=="B") v/=1048576; printf "%d", v}'
+}
+spost -o /dev/null -T "$WORK/main.pdf" "$BASE/api/v1/fs/upload?path=/pdf/%E8%AB%96%E6%96%87.pdf"
+for _ in $(seq 1 90); do
+  st=$(sget "$BASE/api/v1/rag/status")
+  [[ $(jq -r '.pending' <<<"$st") == 0 ]] && break
+  sleep 2
+done
+res=$(sget "$BASE/api/v1/rag/search?q=$(urlenc '畢氏定理')&k=5")
+echo "$res" | jq -r '.results[] | "    \(.score|.*1000|round/1000)  \(.node.path) \(.unit) \(.line_start)"'
+check "PDF 內文可被語意搜尋（以頁碼定位）" bash -c "jq -e '.results|any(.node.path==\"/pdf/論文.pdf\" and .unit==\"page\" and .line_start>=1)' <<<'$res' >/dev/null"
+check "PDF 解析在 worker 容器（app 映像內沒有 pdftotext）" bash -c "! $DC exec -T app test -e /usr/bin/pdftotext && $DC exec -T latex test -x /usr/bin/pdftotext"
+check "損壞的 PDF 被略過而非失敗" bash -c "spost -o /dev/null --data-binary 'not a pdf' '$BASE/api/v1/fs/upload?path=/pdf/broken.pdf' && sleep 6 && sget '$BASE/api/v1/rag/status' | jq -e '.failed==0' >/dev/null"
+m_busy=$(mem_mib app)
+check "app 記憶體（模型已載入）${m_busy} MiB < 500 MiB" test "$m_busy" -lt 500
+for _ in $(seq 1 45); do
+  [[ $(sget "$BASE/api/v1/rag/status" | jq -r '.model_loaded') == false ]] && break
+  sleep 2
+done
+m_idle=$(mem_mib app)
+check "閒置後自動卸載模型（${m_idle} MiB < 150 MiB）" bash -c "[[ \$(sget '$BASE/api/v1/rag/status' | jq -r .model_loaded) == false ]] && (( $m_idle < 150 ))"
+check "卸載後搜尋會自動重新載入模型" bash -c "sget '$BASE/api/v1/rag/search?q=$(urlenc '畢氏定理')&k=3' | jq -e '.results|length>0' >/dev/null"
 
 section "未登入 / 路徑穿越"
 check "未登入列出 → 401" bash -c "[[ \$(status '$BASE/api/v1/nodes/root/children') == 401 ]]"

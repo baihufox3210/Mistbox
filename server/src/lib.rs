@@ -29,6 +29,8 @@ pub mod rag;
 pub mod sensitive;
 pub mod storage;
 pub mod textview;
+#[cfg(feature = "embed")]
+pub mod unigram;
 pub mod util;
 
 use std::sync::{Arc, RwLock};
@@ -63,17 +65,20 @@ impl AppState {
             .as_ref()
             .filter(|u| !u.is_empty())
             .map(|u| Arc::new(latex::LatexClient::new(u.clone(), &cfg)));
-        let rag = rag::Rag::from_config(&cfg);
-        let bg: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'background_url'")
-            .fetch_optional(&db)
-            .await?;
+        let rag = rag::Rag::from_config(&cfg, latex.clone());
+        let bg: Option<String> =
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = 'background_url'")
+                .fetch_optional(&db)
+                .await?;
         Ok(Self {
             db,
             store,
             limiter: Arc::new(auth::RateLimiter::default()),
             latex,
             rag,
-            csp_img_extra: Arc::new(RwLock::new(api::settings::csp_origin(bg.as_deref().unwrap_or("")))),
+            csp_img_extra: Arc::new(RwLock::new(api::settings::csp_origin(
+                bg.as_deref().unwrap_or(""),
+            ))),
             cfg: Arc::new(cfg),
         })
     }
