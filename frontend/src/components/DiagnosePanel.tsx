@@ -1,7 +1,7 @@
-// Diagnose / optimise mode: paste an error log or a code snippet. Left: the
-// formatted input and the matching code in the drive; right: fixes and related
+// Diagnose scratch tab: paste an error log or a code snippet on the left.
+// The right pane shows matching code, fixes and related
 // Markdown notes. Nothing is stored: the last result lives in memory only.
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { api, errorText, type DiagLocation, type DiagnoseReport, type LocationReason, type NodeInfo } from '../api';
 import { SEVERITY_LABEL, useCodeRules } from '../state/codeFindings';
 import type { DriveModel } from '../state/useDrive';
@@ -34,80 +34,89 @@ const LANGS: [string, string][] = [
 ];
 
 /** Last input and result (memory only, cleared on reload). */
-const memory: { text: string; mode: Mode; lang: string; report: DiagnoseReport | null } = { text: '', mode: 'auto', lang: 'auto', report: null };
+const memory: { text: string; mode: Mode; lang: string; report: DiagnoseReport | null; analyzed?: string; view?: string } = { text: '', mode: 'auto', lang: 'auto', report: null };
 
-async function openAt(m: DriveModel, id: string, line: number, onClose: () => void) {
+async function openAt(m: DriveModel, id: string, line: number) {
   try {
     const n: NodeInfo = await api.info(id);
-    onClose();
     m.openFile(n, line);
   } catch (e) {
     m.toast(errorText(e));
   }
 }
 
-export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: () => void }) {
+export default function DiagnosePanel({ m }: { m: DriveModel }) {
   const [text, setText] = useState(memory.text);
   const [mode, setMode] = useState<Mode>(memory.mode);
   const [lang, setLang] = useState(memory.lang);
   const [report, setReport] = useState<DiagnoseReport | null>(memory.report);
+  const [analyzed, setAnalyzed] = useState(memory.analyzed);
+  const [view, setView] = useState(memory.view ?? 'split');
+  const [line, setLine] = useState<number>();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const input = useRef<HTMLTextAreaElement>(null);
+  const request = useRef(0);
   const rules = useCodeRules();
+  const signature = JSON.stringify([text, mode, lang]);
+  const latest = useRef(signature);
+  latest.current = signature;
+  const stale = !!report && analyzed !== signature;
+  const effectiveLang = lang !== 'auto' ? lang : !stale && report?.kind === 'code' ? report.lang ?? 'text' : 'text';
 
   useEffect(() => {
-    Object.assign(memory, { text, mode, lang, report });
-  }, [text, mode, lang, report]);
-  useEffect(() => {
-    if (!report) input.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    Object.assign(memory, { text, mode, lang, report, analyzed, view });
+  }, [text, mode, lang, report, analyzed, view]);
+  useEffect(() => () => { request.current++; }, []);
 
   const run = async () => {
     if (!text.trim() || busy) return;
+    const id = ++request.current;
+    const snapshot = signature;
     setBusy(true);
     setErr('');
     try {
-      setReport(await api.codeDiagnose({ text, mode, lang: lang === 'auto' ? undefined : lang }));
+      const result = await api.codeDiagnose({ text, mode, lang: lang === 'auto' ? undefined : lang });
+      if (request.current === id && latest.current === snapshot) {
+        setReport(result);
+        setAnalyzed(snapshot);
+        if (view === 'input') setView('split');
+      }
     } catch (e) {
-      setErr(errorText(e));
+      if (request.current === id && latest.current === snapshot) setErr(errorText(e));
     } finally {
-      setBusy(false);
+      if (request.current === id) setBusy(false);
     }
   };
-
-  const close = onClose;
+  const clear = () => {
+    request.current++;
+    setBusy(false);
+    setText('');
+    setReport(null);
+    setAnalyzed(undefined);
+    setErr('');
+    setLine(undefined);
+  };
+  const inputLine = (n: number) => {
+    const numbered = text.split('\n').findIndex((l) => Number(l.match(/^\s*(\d+)\s*[|│:]\s?/)?.[1]) === n);
+    return numbered >= 0 ? numbered + 1 : n - (report?.first_line ?? 1) + 1;
+  };
+  const findings = report && !stale ? report.findings.filter((f) => !f.file) : [];
+  const jump = (n: number) => {
+    setView(view === 'result' ? 'split' : view);
+    setLine(undefined);
+    requestAnimationFrame(() => setLine(n));
+  };
   return (
-    <div className="diag" role="dialog" aria-modal="true" aria-label="診斷／優化模式" data-region="diagnose">
-      <header className="diag-head">
-        <Icon name="diagnose" size={18} />
-        <strong>診斷／優化</strong>
-        <span className="muted small hide-sm">貼上錯誤訊息或程式碼，不會保存紀錄</span>
-        <span className="spacer" />
-        <button className="btn ghost icon-only" onClick={close} title="關閉（Esc）" aria-label="關閉">
-          <Icon name="close" />
-        </button>
-      </header>
-      <div className="diag-input">
-        <textarea
-          ref={input}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
-              e.preventDefault();
-              run();
-            }
-          }}
-          placeholder={'貼上編譯錯誤、堆疊追蹤、ROS 2 log，或一段程式碼…\n（Ctrl+Enter 分析）'}
-          spellCheck={false}
-          aria-label="錯誤訊息或程式碼"
-        />
-        <div className="diag-controls">
+    <div className={`diag diag-tab view-${view}`} data-region="diagnose" onKeyDown={(e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
+    }}>
+      <div className="viewer-toolbar diag-controls">
+        <div className="segmented" role="tablist" aria-label="診斷檢視模式">
+          {([['input', '輸入'], ['result', '結果'], ['split', '分割']] as const).map(([v, label]) => (
+            <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => setView(v)}>{label}</button>
+          ))}
+        </div>
+
           <div className="segmented sm" role="group" aria-label="輸入類型">
             {(
               [
@@ -128,7 +137,7 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
           </select>
           <span className="spacer" />
           {(text || report) && (
-            <button className="btn ghost sm" onClick={() => (setText(''), setReport(null), setErr(''), input.current?.focus())}>
+            <button className="btn ghost sm" onClick={clear}>
               清除
             </button>
           )}
@@ -136,17 +145,45 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
             {busy ? <><span className="spinner tiny" /> 分析中…</> : <><Icon name="diagnose" size={14} /> 分析</>}
           </button>
         </div>
-        {err && <p className="form-error" role="alert">{err}</p>}
+      {err && <p className="form-error" role="alert">{err}</p>}
+      <div className="diag-status muted small" role="status">
+        {lang === 'auto' ? `自動判斷：${!report || stale ? '待分析' : report.lang === 'generic' || !report.lang ? '未辨識' : LANGS.find(([v]) => v === report.lang)?.[1] ?? '未辨識'}` : `指定語言：${LANGS.find(([v]) => v === lang)?.[1]}`}
+        {stale && ' · 內容已變更，請重新分析'}
+        <span> · Ctrl+Enter 分析 · 僅暫存於記憶體</span>
       </div>
+      <div className="diag-workspace">
+        <section className="diag-source" aria-label="診斷輸入">
+          <Suspense fallback={<span className="spinner" />}>
+            <CodeView text={text} controlled lang={effectiveLang === 'generic' ? 'text' : effectiveLang} editable onChange={setText} line={line}
+              diagnostics={findings.map((f) => ({ line: inputLine(f.line), severity: f.severity, message: f.message }))} />
+          </Suspense>
+        </section>
+        <div className="diag-output" aria-label="診斷結果">
       {report ? (
         <div className="diag-results">
           <section className="diag-col" aria-label="對應的程式碼">
-            <h3 className="diag-title">{report.kind === 'error' ? '錯誤訊息（已整理）' : `程式碼（${report.lang ?? '未知語言'}，已整理）`}</h3>
-            <Formatted report={report} rules={rules} />
+            {!stale && report.frames.length > 0 && <>
+              <h3 className="diag-title">錯誤位置</h3>
+              <ul className="finding-list">{report.frames.map((f, i) => <li key={i}>
+                <button className="finding" onClick={() => jump(f.input_line)}>
+                  <span className="finding-msg">{f.message ?? f.file ?? f.func ?? '堆疊位置'}</span>
+                  <span className="finding-loc muted">輸入第 {f.input_line} 行</span>
+                </button>
+              </li>)}</ul>
+            </>}
+            {findings.length > 0 && <>
+              <h3 className="diag-title">輸入的分析結果</h3>
+              <ul className="finding-list">{findings.map((f, i) => <li key={i}>
+                <button className="finding" onClick={() => jump(inputLine(f.line))}>
+                  <SevIcon s={f.severity} /><span className="finding-msg"><InlineCode text={f.message} /></span>
+                  <span className="finding-loc muted">第 {f.line} 行</span>
+                </button>
+              </li>)}</ul>
+            </>}
             <h3 className="diag-title">對應的程式碼 <span className="muted small">{report.locations.length} 處</span></h3>
             {report.locations.length === 0 && <p className="diag-hint muted small">雲端裡沒有找到對應的程式碼。</p>}
             {report.locations.map((l, i) => (
-              <LocationCard key={i} l={l} onOpen={() => openAt(m, l.node_id, l.line, close)} />
+              <LocationCard key={i} l={l} onOpen={() => openAt(m, l.node_id, l.line)} />
             ))}
             {report.findings.some((f) => f.file) && (
               <>
@@ -156,7 +193,7 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
                     .filter((f) => f.file)
                     .map((f, i) => (
                       <li key={i}>
-                        <button className="finding" onClick={() => openAt(m, f.node_id!, f.line, close)}>
+                        <button className="finding" onClick={() => openAt(m, f.node_id!, f.line)}>
                           <SevIcon s={f.severity} />
                           <span className="finding-msg"><InlineCode text={f.message} /></span>
                           <span className="finding-loc muted">{f.file!.path}:{f.line}</span>
@@ -182,7 +219,6 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
                     <RuleNoteButton
                       m={m}
                       target={{ kind: s.source === 'known' ? 'known' : 'rule', id: s.source === 'known' ? s.id : (s.rule ?? s.id), title: s.title.replace(/`/g, ''), steps: s.steps }}
-                      onOpened={close}
                     />
                   </header>
                   <ul>
@@ -206,7 +242,7 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
               <article key={n.node_id} className="note-card">
                 <header>
                   <Icon name="file" size={14} />
-                  <button className="link" onClick={() => openAt(m, n.node_id, n.line, close)} title="開啟筆記">
+                  <button className="link" onClick={() => openAt(m, n.node_id, n.line)} title="開啟筆記">
                     {n.file.path}
                   </button>
                   {n.heading && <span className="muted">› {n.heading}</span>}
@@ -218,7 +254,7 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
                 </div>
                 <div className="note-excerpt">
                   <Suspense fallback={<pre>{n.excerpt}</pre>}>
-                    <Markdown source={n.excerpt} fileId={n.node_id} onOpenPath={() => openAt(m, n.node_id, n.line, close)} />
+                    <Markdown source={n.excerpt} fileId={n.node_id} onOpenPath={() => openAt(m, n.node_id, n.line)} />
                   </Suspense>
                 </div>
               </article>
@@ -235,54 +271,9 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
           </ul>
         </div>
       )}
-    </div>
-  );
-}
-
-function Formatted({ report, rules }: { report: DiagnoseReport; rules: ReturnType<typeof useCodeRules> }) {
-  const off = report.first_line - 1;
-  const snippetFindings = report.findings.filter((f) => !f.file);
-  const diagnostics = useMemo(
-    () =>
-      snippetFindings.map((f) => ({ line: f.line - off, severity: f.severity, message: f.message, title: rules?.get(f.rule)?.title })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [report, rules],
-  );
-  if (report.kind === 'code') {
-    return (
-      <div className="diag-code">
-        <Suspense fallback={<pre>{report.formatted}</pre>}>
-          <CodeView key={report.formatted} text={report.formatted} lang={report.lang === 'generic' ? 'text' : (report.lang ?? 'text')} diagnostics={diagnostics} />
-        </Suspense>
-        {snippetFindings.length > 0 && (
-          <ul className="finding-list">
-            {snippetFindings.map((f, i) => (
-              <li key={i}>
-                <div className="finding static">
-                  <SevIcon s={f.severity} />
-                  <span className="finding-msg"><InlineCode text={f.message} /></span>
-                  <span className="finding-loc muted">第 {f.line} 行</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        </div>
       </div>
-    );
-  }
-  const frameLines = new Map(report.frames.map((f) => [f.input_line, f.kind]));
-  return (
-    <pre className="diag-log">
-      {report.formatted.split('\n').map((l, i) => {
-        const k = frameLines.get(i + 1);
-        return (
-          <div key={i} className={`log-line ${k ? `log-${k}` : ''}`}>
-            <span className="log-n">{i + 1}</span>
-            <span className="log-t">{l || ' '}</span>
-          </div>
-        );
-      })}
-    </pre>
+    </div>
   );
 }
 

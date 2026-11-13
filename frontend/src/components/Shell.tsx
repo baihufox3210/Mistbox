@@ -12,7 +12,6 @@ import { DeleteDialog, Modal, MoveDialog, PasswordDialog, PromptDialog } from '.
 import SettingsDialog from './SettingsDialog';
 import TrashDialog from './TrashDialog';
 import SharesDialog from './SharesDialog';
-import DiagnosePanel from './DiagnosePanel';
 import { useCaps } from '../caps';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -53,7 +52,7 @@ export function Topbar({
         <kbd>{MOD}+Shift+P</kbd>
       </button>
       <div className="topbar-actions">
-        <button className="btn ghost icon-only" onClick={() => m.setDialog({ t: 'diagnose' })} title="診斷／優化（Ctrl+Shift+D）：貼上錯誤訊息或程式碼" aria-label="診斷／優化">
+        <button className="btn ghost icon-only" onClick={() => (setLayout('ide'), m.openDiagnose())} title="診斷／優化（Ctrl+Shift+D）：貼上錯誤訊息或程式碼" aria-label="診斷／優化">
           <Icon name="diagnose" />
         </button>
         <button className="btn ghost icon-only" onClick={() => m.setPaletteMode('semantic')} title="語意搜尋（Ctrl+Shift+F）" aria-label="語意搜尋">
@@ -108,13 +107,13 @@ export function useCommands(
   const { target, layout, setLayout, onLogout, extra } = opts;
   const caps = useCaps();
   return useMemo(() => {
-    const activeNode = m.tabs.find((t) => t.node.id === m.active)?.node;
+    const activeNode = m.tabs.find((t) => t.node.id === m.active && t.kind !== 'diagnose')?.node;
     const c: Command[] = [
       { id: 'new-file', label: '新增檔案', icon: 'filePlus', keywords: 'create new file 建立', run: () => m.actions.newFile(target()) },
       { id: 'new-folder', label: '新增資料夾', icon: 'folderPlus', keywords: 'mkdir create directory', run: () => m.actions.newFolder(target()) },
       { id: 'upload', label: '上傳檔案', icon: 'upload', keywords: 'upload', run: () => m.actions.upload(target()) },
       { id: 'upload-folder', label: '上傳資料夾', icon: 'folder', keywords: 'upload directory', run: () => m.actions.uploadFolder(target()) },
-      { id: 'diagnose', label: '診斷／優化模式（貼上錯誤訊息或程式碼）', icon: 'diagnose', shortcut: `${MOD}+Shift+D`, keywords: 'diagnose debug error fix optimize 診斷 除錯 錯誤 優化 解決', run: () => m.setDialog({ t: 'diagnose' }) },
+      { id: 'diagnose', label: '診斷／優化模式（貼上錯誤訊息或程式碼）', icon: 'diagnose', shortcut: `${MOD}+Shift+D`, keywords: 'diagnose debug error fix optimize 診斷 除錯 錯誤 優化 解決', run: () => (setLayout('ide'), m.openDiagnose()) },
       { id: 'semantic', label: '語意搜尋（本地模型）', icon: 'sparkle', shortcut: `${MOD}+Shift+F`, keywords: 'rag vector semantic 向量 相似', run: () => setTimeout(() => m.setPaletteMode('semantic')) },
       { id: 'goto-file', label: '前往檔案（依檔名）', icon: 'search', shortcut: `${MOD}+P`, keywords: 'open quick find', run: () => setTimeout(() => m.setPaletteMode('files')) },
       { id: 'save', label: '儲存目前檔案', icon: 'save', shortcut: `${MOD}+S`, keywords: 'save write', run: () => m.saveActive() },
@@ -186,7 +185,7 @@ export function ShellOverlays({
         m.setPaletteMode('files');
       } else if (mod && e.shiftKey && k === 'd') {
         e.preventDefault();
-        if (caps.admin) m.setDialog({ t: 'diagnose' });
+        if (caps.admin) (setLayout('ide'), m.openDiagnose());
       } else if (mod && e.shiftKey && k === 'f') {
         e.preventDefault();
         if (caps.admin) m.setPaletteMode('semantic');
@@ -302,7 +301,6 @@ export function ShellOverlays({
       {d?.t === 'keys' && <KeysPage onClose={close} />}
       {d?.t === 'share' && <SharesDialog node={d.item} onClose={close} toast={m.toast} />}
       {d?.t === 'shares' && <SharesDialog onClose={close} toast={m.toast} />}
-      {d?.t === 'diagnose' && <DiagnosePanel m={m} onClose={close} />}
       {d?.t === 'password' && <PasswordDialog onClose={close} />}
       {d?.t === 'settings' && <SettingsDialog onClose={close} layout={layout} setLayout={setLayout} />}
       {d?.t === 'confirm-close' && confirmTab && (

@@ -153,7 +153,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
 
   const activeTab = m.tabs.find((t) => t.node.id === m.active);
   const nodeFor = useCallback((id: string) => byId.get(id), [byId]);
-  const { counts } = useActiveCounts(activeTab?.node, caps.admin);
+  const { counts } = useActiveCounts(activeTab?.kind === 'diagnose' ? undefined : activeTab?.node, caps.admin);
 
   const dragProblems = (e: React.PointerEvent) => {
     e.preventDefault();
@@ -297,7 +297,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
           <>
             <div className="hresizer" role="separator" aria-orientation="horizontal" aria-label="調整問題面板高度" onPointerDown={dragProblems} />
             <div style={{ height: problemsH }} className="problems-wrap">
-              <ProblemsPanel m={m} active={activeTab?.node} onClose={() => setProblems(false)} />
+              <ProblemsPanel m={m} active={activeTab?.kind === 'diagnose' ? undefined : activeTab?.node} onClose={() => setProblems(false)} />
             </div>
           </>
         )}
@@ -316,7 +316,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
             <SevIcon s="perf" /> {counts.perf}
           </button>
         )}
-        {activeTab && <span className="sb-item">{languageFor(activeTab.node.name)}</span>}
+        {activeTab && activeTab.kind !== 'diagnose' && <span className="sb-item">{languageFor(activeTab.node.name)}</span>}
         <button className="sb-item sb-btn" onClick={() => m.setDialog({ t: 'settings' })} title="語意搜尋狀態">
           <Icon name="sparkle" size={12} /> {ragLabel(rag)}
         </button>

@@ -5,7 +5,11 @@ import { api, ApiError, contentUrl, errorText, type Listing, type NodeInfo } fro
 import { filesFromDrop, useUploads, type PendingFile } from '../components/Uploads';
 import { discardDraft } from './drafts';
 
+export const DIAGNOSE_TAB_ID = "diagnose:scratch";
+
 export interface Tab {
+  /** Temporary tool tabs use local display metadata, never a storage node. */
+  kind?: "file" | "diagnose";
   node: NodeInfo;
   /** Line to reveal (from semantic search). */
   line?: number;
@@ -27,7 +31,6 @@ export type Dialog =
   | { t: 'trash' }
   | { t: 'share'; item: NodeInfo }
   | { t: 'shares' }
-  | { t: 'diagnose' }
   | null;
 
 function readUrl() {
@@ -86,7 +89,7 @@ export function useDrive(opts: { admin?: boolean } = {}) {
   const syncUrl = useCallback((dir: string, file: string | null, push: boolean) => {
     const p = new URLSearchParams();
     if (dir !== 'root') p.set('dir', dir);
-    if (file) p.set('file', file);
+    if (file && file !== DIAGNOSE_TAB_ID) p.set('file', file);
     // Keep the fragment: on share pages it holds the link secret.
     const url = `${window.location.pathname}${p.toString() ? '?' + p : ''}${window.location.hash}`;
     if (push) window.history.pushState(null, '', url);
@@ -117,6 +120,16 @@ export function useDrive(opts: { admin?: boolean } = {}) {
     },
     [dirId, navigate, syncUrl],
   );
+
+  const openDiagnose = useCallback(() => {
+    setTabs((tabs) => tabs.some((t) => t.kind === 'diagnose') ? tabs : [...tabs, {
+      kind: 'diagnose',
+      node: { id: DIAGNOSE_TAB_ID, name: '診斷／優化', kind: 'file', parent_id: null,
+        size: 0, mime: null, sha256: null, sensitive: false, created_at: '', modified_at: '' },
+    }]);
+    setActive(DIAGNOSE_TAB_ID);
+    syncUrl(dirId, null, false);
+  }, [dirId, syncUrl]);
 
   useEffect(() => {
     const onPop = () => setDirId(readUrl().dir);
@@ -295,6 +308,7 @@ export function useDrive(opts: { admin?: boolean } = {}) {
       syncUrl(dirId, id, false);
     },
     openFile,
+    openDiagnose,
     closeTab,
     closeAll,
     closeTabs,

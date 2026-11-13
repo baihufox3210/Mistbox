@@ -29,6 +29,7 @@ import {
 import { useCaps } from '../caps';
 import { DND_TYPE, useTabHooks } from './shared';
 
+const DiagnosePanel = lazy(() => import('../components/DiagnosePanel'));
 const Preview = lazy(() => import('../preview/Preview'));
 
 export const TAB_DND = 'application/x-mistbox-tab';
@@ -338,7 +339,7 @@ function EditorGroup({
   const tabs = gr.tabs.map((id) => m.tabs.find((t) => t.node.id === id)).filter((t) => !!t);
   const activeTab = tabs.find((t) => t.node.id === gr.active);
   const caps = useCaps();
-  const hooks = useTabHooks(m, activeTab, true, caps.admin);
+  const hooks = useTabHooks(m, activeTab?.kind === 'diagnose' ? undefined : activeTab, true, caps.admin);
   const body = useRef<HTMLDivElement>(null);
   const accepts = (e: React.DragEvent) => e.dataTransfer.types.includes(TAB_DND) || e.dataTransfer.types.includes(DND_TYPE);
 
@@ -382,7 +383,7 @@ function EditorGroup({
             onMouseDown={(e) => e.button === 1 && (e.preventDefault(), m.closeTab(t.node.id))}
           >
             <button role="tab" aria-selected={t.node.id === gr.active} onClick={() => m.setActive(t.node.id)} title={t.node.path ?? t.node.name}>
-              <FileIcon name={t.node.name} kind="file" size={15} />
+              <>{t.kind === 'diagnose' ? <Icon name="diagnose" size={15} /> : <FileIcon name={t.node.name} kind="file" size={15} />}</>
               {t.node.name}
             </button>
             <button className="tab-x" aria-label={`關閉 ${t.node.name}`} onClick={() => m.closeTab(t.node.id)}>
@@ -419,7 +420,7 @@ function EditorGroup({
       >
         {activeTab ? (
           <Suspense fallback={<div className="state"><span className="spinner" /> 載入編輯器…</div>}>
-            <Preview key={activeTab.node.id + ':' + (activeTab.rev ?? 0)} node={activeTab.node} onOpenPath={m.actions.openPath} editor={hooks} />
+            {activeTab.kind === 'diagnose' ? <DiagnosePanel m={m} /> : <Preview key={activeTab.node.id + ':' + (activeTab.rev ?? 0)} node={activeTab.node} onOpenPath={m.actions.openPath} editor={hooks} />}
           </Suspense>
         ) : (
           <div className="egroup-empty">

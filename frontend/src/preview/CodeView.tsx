@@ -234,6 +234,8 @@ const highlight = HighlightStyle.define([
 
 interface Props {
   text: string;
+  /** Synchronise externally replaced text for scratch editors. */
+  controlled?: boolean;
   lang: string;
   /** Extra toolbar content (encoding selector, save button…). */
   toolbar?: React.ReactNode;
@@ -253,7 +255,7 @@ interface Props {
  * wrap, optional editing with Ctrl/Cmd+S. The document is created once per
  * mount (remount with a React key to load new text). CRLF files keep CRLF.
  */
-export default function CodeView({ text, lang, toolbar, editable = false, onChange, onSave, line, diagnostics, defaultWrap = false }: Props) {
+export default function CodeView({ text, controlled = false, lang, toolbar, editable = false, onChange, onSave, line, diagnostics, defaultWrap = false }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const comps = useRef({ wrap: new Compartment(), ro: new Compartment(), lang: new Compartment() });
@@ -334,6 +336,13 @@ export default function CodeView({ text, lang, toolbar, editable = false, onChan
     const ln = v.state.doc.line(Math.min(Math.max(1, line), v.state.doc.lines));
     v.dispatch({ selection: { anchor: ln.from }, effects: [EditorView.scrollIntoView(ln.from, { y: 'center' }), setReveal.of(ln.from)] });
   }, [line]);
+
+  useEffect(() => {
+    const v = view.current;
+    if (controlled && v && v.state.doc.toString() !== text) {
+      v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
+    }
+  }, [text, controlled]);
 
   const copy = async () => {
     try {
