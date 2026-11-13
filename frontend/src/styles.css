@@ -831,7 +831,7 @@ html[data-has-bg] .statusbar {
 }
 html[data-has-bg] .statusbar { position: relative; z-index: 1; }
 
-/* Light theme: pale blue title bar, navy navigation and status bars. */
+/* Light theme: pale blue title bar, navy navigation text and selection marks. */
 html[data-theme='light'] .topbar { background: #d9edff; }
 html[data-theme='light'][data-has-bg] .topbar {
   background: rgba(217, 237, 255, max(0.65, var(--mb-bg-dim)));
@@ -839,22 +839,12 @@ html[data-theme='light'][data-has-bg] .topbar {
 html[data-theme='light'] .drive-side,
 html[data-theme='light'] .explorer-pane,
 html[data-theme='light'] .statusbar {
-  --text: #edf4fc;
-  --text-2: #c3d5e8;
-  --text-3: #a7bfd8;
-  --link: #9edaff;
-  --surface: #17324e;
-  --line: rgba(203, 224, 247, 0.22);
-  --line-strong: rgba(203, 224, 247, 0.38);
-  --hover: rgba(217, 237, 255, 0.12);
-  --selection-strong: rgba(156, 211, 255, 0.22);
-  --focus-ring: rgba(156, 211, 255, 0.75);
-  --warn: #f5c451;
+  --text: #102a43;
+  --text-2: #254e73;
+  --text-3: #385d7d;
+  --accent-600: #17324e;
+  --accent-700: #102a43;
+  --accent-line: #17324e;
+  --tint: rgba(23, 50, 78, 0.08);
   color: var(--text);
-  background: #102a43;
-}
-html[data-theme='light'][data-has-bg] .drive-side,
-html[data-theme='light'][data-has-bg] .explorer-pane,
-html[data-theme='light'][data-has-bg] .statusbar {
-  background: rgba(16, 42, 67, max(0.72, var(--mb-bg-dim)));
 }
