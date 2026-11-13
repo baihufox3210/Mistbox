@@ -73,7 +73,10 @@
 | `--link` `--danger` `--warn` `--ok` | 連結與狀態色 |
 | `--radius` `--radius-lg` `--shadow` `--shadow-lg` | 圓角與陰影 |
 | `--sans` `--mono` `--code-font-size` | 字型 |
-| `--icon-folder` `--icon-code` `--icon-md` `--icon-pdf` … | 檔案圖示顏色 |
+| `--icon-folder` | 資料夾圖示的線條顏色 |
+| `--icon-line` | 檔案圖示的頁面外框顏色 |
+| `--icon-code` `--icon-md` `--icon-pdf` `--icon-image` … | 頁面內小符號（依檔案類型）的顏色 |
+| `--hover` `--selection` `--tint` `--accent-line` | 滑過、選取的淡色底與強調細線（簡約線條風格） |
 | `--code-bg` `--code-gutter-bg` `--code-active-line` `--code-selection` | 編輯器 |
 | `--syn-keyword` `--syn-string` `--syn-number` `--syn-comment` `--syn-function` `--syn-type` `--syn-property` `--syn-variable` `--syn-punct` `--syn-meta` `--syn-tag` `--syn-heading` `--syn-link` | 語法高亮；CodeMirror 與 Markdown 程式碼區塊共用 |
 | `--mb-bg-image` `--mb-bg-dim` `--mb-bg-blur` | 背景圖、遮罩、模糊（由設定寫入） |

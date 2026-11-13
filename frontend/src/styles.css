@@ -51,7 +51,8 @@
   --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Noto Sans Mono CJK TC', monospace;
   --code-font-size: 13.5px;
   /* File icons */
-  --icon-folder: #4cb3f0;
+  --icon-folder: #0284c7;
+  --icon-line: #6b8193;
   --icon-folder-back: #2b93d6;
   --icon-page: #ffffff;
   --icon-page-fold: #e6f2fb;
@@ -128,7 +129,8 @@ html[data-theme='dark'] {
   --icon-page: #1b3146;
   --icon-page-fold: #24405a;
   --icon-page-line: #3b5d7a;
-  --icon-folder: #38bdf8;
+  --icon-folder: #5cc7fa;
+  --icon-line: #8aa4b8;
   --icon-folder-back: #0b86c4;
   --code-bg: #0c1924;
   --code-gutter-bg: #0b1620;
@@ -624,3 +626,75 @@ pre.example { background: var(--code-bg); border: 1px solid var(--line); border-
 .share-file .preview { flex: 1; min-height: 0; }
 .share-error h2 { margin: 0; }
 .share-error p { max-width: 420px; text-align: center; }
+
+/* =====================================================================
+   Minimal, line-based look. Surfaces stay flat (no fills or shadows on
+   cards, buttons and bars); structure comes from 1px lines, state from a
+   thin accent line plus a barely-there tint. Override freely in
+   theme/custom.css.
+   ===================================================================== */
+:root, html[data-theme='dark'] {
+  --hover: color-mix(in srgb, var(--text) 4.5%, transparent);
+  --selection: color-mix(in srgb, var(--accent-500) 8%, transparent);
+  --selection-strong: color-mix(in srgb, var(--accent-500) 12%, transparent);
+  --tint: color-mix(in srgb, var(--accent-500) 6%, transparent);
+  --accent-line: var(--accent-500);
+}
+::selection { background: color-mix(in srgb, var(--accent-500) 28%, transparent); }
+
+/* bars & panes: one surface, separated by lines */
+.topbar, .drive-side, .explorer-pane, .tabs, .viewer-toolbar { background: var(--surface); }
+.statusbar { background: var(--surface); color: var(--text-2); border-top: 1px solid var(--line); }
+.statusbar .sb-btn:hover { background: var(--hover); }
+.statusbar .warn { color: var(--warn); }
+.cmd-center { border-color: var(--line); background: transparent; }
+
+/* buttons: outlines; primary = accent outline, danger = red outline */
+.btn { border-color: var(--line); background: transparent; }
+.btn:hover:not(:disabled) { background: var(--hover); border-color: var(--line-strong); }
+.btn.primary { background: transparent; border-color: var(--accent-line); color: var(--accent-600); }
+.btn.primary:hover:not(:disabled) { background: var(--tint); border-color: var(--accent-line); }
+html[data-theme='dark'] .btn.primary { color: var(--accent-300); }
+.btn.danger, html[data-theme='dark'] .btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 8%, transparent); border-color: var(--danger); }
+.btn.ghost { border-color: transparent; }
+.btn.ghost.active { background: var(--tint); border-color: var(--accent-line); }
+.new-btn { height: 40px; border-radius: 10px; box-shadow: none; background: transparent; border-color: var(--line-strong); font-weight: 500; font-size: 14px; padding: 0 18px 0 12px; }
+.new-btn:hover { border-color: var(--accent-line); background: var(--tint); }
+.segmented { border-color: var(--line); background: transparent; }
+.segmented button.on { background: var(--tint); color: var(--accent-600); font-weight: 500; }
+html[data-theme='dark'] .segmented button.on { color: var(--accent-300); }
+
+/* badges: hairline pills */
+.badge, html[data-theme='dark'] .badge { background: transparent; color: var(--text-2); border: 1px solid var(--line-strong); }
+.badge.ok { background: transparent; color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+.badge.warn { background: transparent; color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.badge.danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+.badge.muted { background: transparent; }
+.notice, html[data-theme='dark'] .notice { background: transparent; border: 1px solid var(--line); border-left: 2px solid var(--accent-line); border-radius: 6px; }
+.notice.warn { background: transparent; border-color: color-mix(in srgb, var(--warn) 40%, transparent); border-left-color: var(--warn); }
+.palette-hint, html[data-theme='dark'] .palette-hint { background: transparent; }
+
+/* sidebar / tree: current item = accent text + thin left line */
+.side-row { border-radius: 6px; }
+.side-row.current { background: var(--tint); font-weight: 500; color: var(--accent-600); box-shadow: inset 2px 0 0 var(--accent-line); }
+html[data-theme='dark'] .side-row.current { color: var(--accent-300); }
+.tree-row.selected { background: var(--tint); box-shadow: inset 2px 0 0 var(--accent-line); }
+.sel-bar { background: transparent; border: 1px solid var(--line); }
+
+/* cards: outlined, no fill */
+.folder-card, .file-card { background: transparent; border: 1px solid var(--line); border-radius: 10px; }
+.folder-card:hover, .file-card:hover { background: transparent; border-color: var(--line-strong); }
+.file-card .thumb { background: transparent; border-top: 1px solid var(--line); border-radius: 0; margin: 0; height: 120px; }
+.file-card .file-sub { padding-top: 8px; margin-top: 0; }
+.item.selected { background: var(--tint) !important; border-color: var(--accent-line); }
+.files tbody tr.item.selected { box-shadow: inset 2px 0 0 var(--accent-line); }
+.item-more:hover { background: var(--hover); }
+.tab.on { box-shadow: inset 0 -2px 0 var(--accent-line); }
+.welcome-act { background: transparent; }
+.welcome-act:hover { background: var(--tint); border-color: var(--accent-line); }
+.welcome h2 { font-weight: 500; }
+.palette-item.sel { background: var(--tint); box-shadow: inset 2px 0 0 var(--accent-line); }
+.palette-item .pi-icon { color: var(--text-2); }
+.login { background: var(--bg); }
+.login-card { box-shadow: none; }

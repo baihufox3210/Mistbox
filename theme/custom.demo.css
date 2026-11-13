@@ -22,7 +22,7 @@
   --selection: #d6f5ee;
   --selection-strong: #b5ecdf;
   --icon-folder: #2cc3ad;
-  --icon-folder-back: #0d8778;
+  --icon-line: #5f8f88;
 }
 html[data-theme='dark'] {
   --link: #5eead4;
