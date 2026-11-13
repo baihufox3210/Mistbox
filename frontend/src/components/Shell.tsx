@@ -52,8 +52,9 @@ export function Topbar({
         <kbd>{MOD}+Shift+P</kbd>
       </button>
       <div className="topbar-actions">
-        <button className="btn ghost icon-only" onClick={() => (setLayout('ide'), m.openDiagnose())} title="診斷／優化（Ctrl+Shift+D）：貼上錯誤訊息或程式碼" aria-label="診斷／優化">
+        <button className="btn ghost diagnose-entry" onClick={() => (setLayout('ide'), m.openDiagnose())} title="診斷／優化（Ctrl+Shift+D）：貼上錯誤訊息或程式碼" aria-label="診斷／優化">
           <Icon name="diagnose" />
+          <span>診斷／優化</span>
         </button>
         <button className="btn ghost icon-only" onClick={() => m.setPaletteMode('semantic')} title="語意搜尋（Ctrl+Shift+F）" aria-label="語意搜尋">
           <Icon name="sparkle" />

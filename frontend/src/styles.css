@@ -852,7 +852,14 @@ html[data-theme='light'] .statusbar {
 /* Code editor: text scrolled sideways is clipped at the line-number gutter
    (the gutter is translucent when a background image is set). */
 .code-host .cm-content { clip-path: inset(0 0 0 var(--cm-scroll-left, 0px)); }
-.code-host .cm-layer { clip-path: inset(0 0 0 calc(var(--cm-scroll-left, 0px) + var(--cm-gutter-w, 0px) - 1px)); }
+/* CodeMirror layers have size containment and no intrinsic dimensions.
+   Use measured document bounds: percentage/inset bounds collapse the cursor. */
+.code-host .cm-layer { clip-path: polygon(
+  calc(var(--cm-scroll-left, 0px) + var(--cm-gutter-w, 0px) - 1px) 0,
+  var(--cm-document-width, 100vw) 0,
+  var(--cm-document-width, 100vw) var(--cm-document-height, 100vh),
+  calc(var(--cm-scroll-left, 0px) + var(--cm-gutter-w, 0px) - 1px) var(--cm-document-height, 100vh)
+); }
 
 /* Narrow editors (split groups, Markdown split view): icon-only tool buttons,
    and the Markdown source / preview stacked instead of side by side. */
@@ -869,7 +876,7 @@ html[data-theme='light'] .statusbar {
 
 /* ---- Diagnose / optimise mode ---- */
 .diag { position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column; background: var(--bg); }
-html[data-has-bg] .diag { background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(14px); }
+
 .diag-head { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--line); flex: none; }
 .diag-input { padding: 12px 16px 10px; border-bottom: 1px solid var(--line); flex: none; display: flex; flex-direction: column; gap: 8px; }
 .diag-input textarea { width: 100%; min-height: 96px; height: 18vh; max-height: 50vh; resize: vertical; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--code-bg); color: var(--text); }
@@ -931,7 +938,7 @@ button.link:hover { text-decoration: underline; }
 .kv code, section > .muted code { font-family: var(--mono); font-size: 12px; }
 
 /* Diagnose scratch tab shares the editor and Markdown split surfaces. */
-.diag.diag-tab { position: relative; inset: auto; z-index: auto; width: 100%; height: 100%; min-height: 0; min-width: 0; background: var(--bg); backdrop-filter: none; }
+.diag.diag-tab { position: relative; inset: auto; z-index: auto; width: 100%; height: 100%; min-height: 0; min-width: 0; background: transparent; backdrop-filter: none; }
 .diag-tab .diag-controls { flex: none; }
 .diag-tab .diag-controls select { font: inherit; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 5px 8px; max-width: 100%; }
 .diag-tab .diag-controls select:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 2px; }
@@ -954,3 +961,15 @@ button.link:hover { text-decoration: underline; }
   .diag-output { border-left: 0; border-top: 1px solid var(--line); }
   .view-input .diag-workspace, .view-result .diag-workspace { grid-template-rows: minmax(0, 1fr); }
 }
+
+/* Tool tabs use the same glass surfaces as the surrounding editor. */
+html[data-has-bg] .diag-tab .loc-card,
+html[data-has-bg] .diag-tab .sol-card,
+html[data-has-bg] .diag-tab .note-card {
+  background: color-mix(in srgb, var(--surface) calc(var(--glass) * 100%), transparent);
+}
+html[data-has-bg] .diag-tab .loc-excerpt {
+  background: color-mix(in srgb, var(--code-bg) calc(var(--glass) * 100%), transparent);
+}
+.diag-tab .diag-controls .btn.primary { flex-shrink: 0; min-width: 76px; }
+.topbar .diagnose-entry { flex-shrink: 0; }

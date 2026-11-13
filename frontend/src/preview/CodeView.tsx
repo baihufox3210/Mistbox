@@ -176,10 +176,21 @@ const clipUnderGutter = ViewPlugin.fromClass(
       this.sync();
     }
     sync() {
-      const s = this.view.scrollDOM.scrollLeft;
-      const g = (this.view.dom.querySelector('.cm-gutters') as HTMLElement | null)?.offsetWidth ?? 0;
-      this.view.dom.style.setProperty('--cm-scroll-left', `${s}px`);
-      this.view.dom.style.setProperty('--cm-gutter-w', `${g}px`);
+      this.view.requestMeasure({
+        key: this,
+        read: (view) => ({
+          scroll: view.scrollDOM.scrollLeft,
+          gutter: (view.dom.querySelector('.cm-gutters') as HTMLElement | null)?.offsetWidth ?? 0,
+          width: view.scrollDOM.scrollWidth,
+          height: view.scrollDOM.scrollHeight,
+        }),
+        write: ({ scroll, gutter, width, height }, view) => {
+          view.dom.style.setProperty('--cm-scroll-left', `${scroll}px`);
+          view.dom.style.setProperty('--cm-gutter-w', `${gutter}px`);
+          view.dom.style.setProperty('--cm-document-width', `${width}px`);
+          view.dom.style.setProperty('--cm-document-height', `${height}px`);
+        },
+      });
     }
     update() {
       // Gutter width changes with the number of digits.
@@ -197,7 +208,7 @@ const theme = EditorView.theme({
   '&': { height: '100%', fontSize: 'var(--code-font-size, 13.5px)', backgroundColor: 'var(--code-bg)', color: 'var(--text)' },
   '.cm-scroller': { fontFamily: 'var(--mono)', lineHeight: '1.6' },
   '.cm-content': { caretColor: 'var(--accent-500)' },
-  '.cm-cursor': { borderLeftColor: 'var(--accent-500)' },
+  '.cm-cursor, .cm-dropCursor': { borderLeft: '2px solid var(--text)' },
   '.cm-gutters': { backgroundColor: 'var(--code-gutter-bg)', color: 'var(--text-3)', borderRight: '1px solid var(--line)' },
   '.cm-activeLine': { backgroundColor: 'var(--code-active-line)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--code-active-line)', color: 'var(--text)' },
