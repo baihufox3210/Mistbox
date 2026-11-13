@@ -1,0 +1,53 @@
+[package]
+name = "mistbox"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+argon2 = "0.6.0"
+axum = { version = "0.8.9", features = ["macros"] }
+chardetng = "1.0.0"
+chrono = { version = "0.4.45", features = ["serde"] }
+clap = { version = "4.6.7", features = ["derive", "env"] }
+encoding_rs = "0.8.44"
+fastembed = { version = "7.7", default-features = false, features = ["ort-download-binaries-rustls-tls", "hf-hub-rustls-tls"], optional = true }
+futures-util = "0.3.34"
+getrandom = "0.4.3"
+hex = "0.4.3"
+libc = "0.2.191"
+mime_guess = "2.0.5"
+percent-encoding = "2.3.2"
+regex = "1.13.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["stream"] }
+rpassword = "7.5.5"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+subtle = "2.6.1"
+tar = "0.4.46"
+thiserror = "2.0.21"
+tokio = { version = "1.54.1", features = ["full"] }
+tokio-util = { version = "0.7.20", features = ["io"] }
+tower-http = { version = "0.7.1", features = ["fs", "trace", "limit", "set-header"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.29.2", features = ["v4"] }
+
+[dev-dependencies]
+encoding_rs = { version = "0.8.44", default-features = false }
+getrandom = { version = "0.4.3", default-features = false }
+hex = { version = "0.4.3", default-features = false }
+libc = { version = "0.2.191", default-features = false }
+percent-encoding = { version = "2.3.2", default-features = false }
+sha2 = { version = "0.11.1", default-features = false }
+sqlx = { version = "0.9.0", default-features = false }
+tempfile = "3.27.0"
+tower = "0.5.3"
+walkdir = { version = "2.5.0", default-features = false }
+
+[features]
+default = []
+# Local ONNX embedding model for semantic search (enabled in the Docker image).
+embed = ["dep:fastembed"]

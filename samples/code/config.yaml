@@ -1,0 +1,5 @@
+# YAML 設定
+server:
+  host: 127.0.0.1
+  port: 8080
+features: [markdown, latex, "程式碼"]

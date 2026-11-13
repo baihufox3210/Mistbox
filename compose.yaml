@@ -1,0 +1,79 @@
+# Mistbox — private cloud drive.
+#   docker compose up -d --build
+#   docker compose exec app mistbox admin create --username <name>
+# Binds to 127.0.0.1 only; put an HTTPS reverse proxy in front (see README).
+name: mistbox
+
+services:
+  app:
+    build:
+      context: .
+      target: app
+      network: "${MISTBOX_BUILD_NETWORK:-default}"
+      args:
+        # Embedding model baked into the image for semantic search (see `mistbox rag models`).
+        EMBED_MODEL: ${MISTBOX_RAG_MODEL:-multilingual-e5-small}
+    image: mistbox-app:local
+    restart: unless-stopped
+    ports:
+      - "${MISTBOX_HOST:-127.0.0.1}:${MISTBOX_PORT:-8080}:8080"
+    environment:
+      MISTBOX_LATEX_URL: http://latex:8090
+      MISTBOX_COOKIE_SECURE: ${MISTBOX_COOKIE_SECURE:-true}
+      MISTBOX_SESSION_TTL_HOURS: ${MISTBOX_SESSION_TTL_HOURS:-12}
+      MISTBOX_MAX_UPLOAD_BYTES: ${MISTBOX_MAX_UPLOAD_BYTES:-10737418240}
+      MISTBOX_PREVIEW_MAX_BYTES: ${MISTBOX_PREVIEW_MAX_BYTES:-2097152}
+      MISTBOX_LATEX_MAX_INPUT_BYTES: ${MISTBOX_LATEX_MAX_INPUT_BYTES:-52428800}
+      MISTBOX_TRUST_PROXY: ${MISTBOX_TRUST_PROXY:-false}
+      MISTBOX_LOGIN_ATTEMPTS: ${MISTBOX_LOGIN_ATTEMPTS:-10}
+      MISTBOX_API_RATE_PER_MIN: ${MISTBOX_API_RATE_PER_MIN:-1200}
+      MISTBOX_RAG_MAX_FILE_BYTES: ${MISTBOX_RAG_MAX_FILE_BYTES:-1048576}
+      MISTBOX_RAG_THREADS: ${MISTBOX_RAG_THREADS:-4}
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn,ort=warn}
+    volumes:
+      - mistbox-data:/data          # SQLite DB + file blobs (the only writable path)
+      - ./theme:/app/theme:ro       # custom.css + theme assets, served at /theme/
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        gw_priority: 1        # published port + default route via the normal network
+      latex-internal: {}
+    depends_on: [latex]
+    healthcheck:
+      test: ["CMD", "mistbox", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  latex:
+    build: { context: ., target: latex, network: "${MISTBOX_BUILD_NETWORK:-default}" }
+    image: mistbox-latex:local
+    restart: unless-stopped
+    environment:
+      LATEX_TIMEOUT_SECS: ${LATEX_TIMEOUT_SECS:-60}
+      LATEX_CPU_SECS: ${LATEX_CPU_SECS:-45}
+      LATEX_MEMORY_MB: ${LATEX_MEMORY_MB:-1536}
+      LATEX_MAX_OUTPUT_MB: ${LATEX_MAX_OUTPUT_MB:-50}
+      LATEX_CONCURRENCY: ${LATEX_CONCURRENCY:-2}
+    # No volumes: the worker only sees the files sent for each job.
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 128
+    networks: [latex-internal]   # internal-only: no route to the host LAN or Internet
+
+networks:
+  latex-internal:
+    internal: true
+
+volumes:
+  mistbox-data:

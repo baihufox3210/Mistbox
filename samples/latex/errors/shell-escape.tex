@@ -1,0 +1,6 @@
+% Shell escape must be disabled: compiles only if \write18 is off.
+\documentclass{article}
+\begin{document}
+\immediate\write18{touch /tmp/pwned}
+\ifnum\shellescape=0 SHELL ESCAPE DISABLED \else\errmessage{SHELL ESCAPE IS ENABLED}\fi
+\end{document}

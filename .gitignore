@@ -1,0 +1,8 @@
+server/target/
+frontend/node_modules/
+frontend/dist/
+frontend/public/pdfjs/
+.env
+data/
+backups/
+*.tar

@@ -1,0 +1,8 @@
+# TOML 範例
+[package]
+name = "demo"
+version = "0.1.0"
+authors = ["作者 <a@example.com>"]
+
+[limits]
+upload = 10_737_418_240

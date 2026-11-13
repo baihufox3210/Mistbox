@@ -1,0 +1,102 @@
+/* ==========================================================================
+   Mistbox custom.css 範例集（demo）
+   把需要的區塊複製到 custom.css，按「重新載入自訂 CSS」即可看到效果。
+   每個區塊互相獨立；全部貼上也能正常運作。
+   ========================================================================== */
+
+
+/* ---------- 1. 換主色（例：青綠色）：只要改 accent 色階與主要按鈕 ---------- */
+:root {
+  --accent-50: #effcf9;
+  --accent-100: #d1f7ef;
+  --accent-200: #a3eedf;
+  --accent-300: #66dcc8;
+  --accent-400: #2cc3ad;
+  --accent-500: #13a894;
+  --accent-600: #0d8778;
+  --accent-700: #0f6c61;
+  --accent-800: #11574f;
+  --primary-bg: #0f766e;
+  --primary-bg-hover: #115e59;
+  --link: #0f766e;
+  --selection: #d6f5ee;
+  --selection-strong: #b5ecdf;
+  --icon-folder: #2cc3ad;
+  --icon-folder-back: #0d8778;
+}
+html[data-theme='dark'] {
+  --link: #5eead4;
+  --selection: #0f3b37;
+  --selection-strong: #155e56;
+  --primary-bg: #0d9488;
+}
+
+
+/* ---------- 2. 字型（自備字型檔放在 theme/fonts/，CSP 只允許站內字型） ---------- */
+/*
+@font-face {
+  font-family: 'MyFont';
+  src: url('/theme/fonts/MyFont.woff2') format('woff2');
+  font-display: swap;
+}
+*/
+:root {
+  --sans: 'Inter', system-ui, 'Noto Sans TC', 'PingFang TC', sans-serif;
+  --mono: 'JetBrains Mono', 'Sarasa Mono TC', ui-monospace, monospace;
+  --code-font-size: 14px;
+}
+
+
+/* ---------- 3. 有背景圖時，讓面板更透明、更玻璃感 ----------
+   背景圖網址在「設定 → 背景圖片」輸入（或圖片右鍵「設為背景」）；
+   html[data-has-bg] 只在設定了背景時存在。 */
+html[data-has-bg] {
+  --glass: 0.72;               /* 面板不透明度 0–1 */
+}
+html[data-has-bg] .file-card,
+html[data-has-bg] .folder-card {
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+
+/* ---------- 4. 雲端硬碟版面：更大的卡片與縮圖 ---------- */
+.layout-drive .file-grid,
+.layout-drive .folder-grid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.layout-drive .file-card .thumb { height: 160px; }
+.layout-drive .new-btn { border-radius: 24px; }
+
+
+/* ---------- 5. IDE 版面：較緊湊的檔案樹、彩色狀態列 ---------- */
+.layout-ide .tree-row { height: 24px; font-size: 13px; }
+.layout-ide [data-region='statusbar'] {
+  background: linear-gradient(90deg, var(--accent-700), var(--accent-500));
+}
+
+
+/* ---------- 6. 語法高亮配色（只改深色模式的幾個 token） ---------- */
+html[data-theme='dark'] {
+  --syn-keyword: #ff79c6;
+  --syn-string: #f1fa8c;
+  --syn-function: #50fa7b;
+  --syn-comment: #8293b2;
+}
+
+
+/* ---------- 7. Markdown 閱讀樣式 ---------- */
+.markdown-body {
+  max-width: 760px;
+  font-size: 16px;
+  line-height: 1.85;
+}
+.markdown-body h1 { color: var(--accent-700); }
+html[data-theme='dark'] .markdown-body h1 { color: var(--accent-300); }
+
+
+/* ---------- 8. 圓角與陰影 ---------- */
+:root {
+  --radius: 10px;
+  --radius-lg: 18px;
+}
