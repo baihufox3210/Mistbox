@@ -16,7 +16,7 @@ services:
     image: mistbox-app:local
     restart: unless-stopped
     ports:
-      - "${MISTBOX_HOST:-127.0.0.1}:${MISTBOX_PORT:-8080}:8080"
+      - "${MISTBOX_HOST:-127.0.0.1}:${MISTBOX_PORT:-8725}:8080"
     environment:
       MISTBOX_LATEX_URL: http://latex:8090
       MISTBOX_COOKIE_SECURE: ${MISTBOX_COOKIE_SECURE:-true}

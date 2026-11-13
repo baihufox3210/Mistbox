@@ -1,6 +1,6 @@
 # Mistbox API v1
 
-Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8080/api/v1`）
+Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8725/api/v1`）
 
 ## 認證
 

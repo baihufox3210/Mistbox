@@ -44,7 +44,7 @@ docker compose ps               # app 應顯示 healthy
 
 > 主機的 DNS 只有主機本身能連到時（例如 Tailscale MagicDNS 的 `100.100.100.100`），建置期間的 `apt`、`cargo` 會解析失敗。請在 `.env` 設定 `MISTBOX_BUILD_NETWORK=host` 後再建置。這只影響建置，不影響執行。
 
-服務只綁定 `127.0.0.1:8080`。本機可直接開啟 <http://localhost:8080>；遠端存取請使用第 6 節的 HTTPS 反向代理。
+服務只綁定 `127.0.0.1:8725`。本機可直接開啟 <http://localhost:8725>；遠端存取請使用第 6 節的 HTTPS 反向代理。
 
 ## 2. 初始化管理者
 
@@ -337,7 +337,7 @@ drive.example.com {
     request_body {
         max_size 10GB
     }
-    reverse_proxy 127.0.0.1:8080 {
+    reverse_proxy 127.0.0.1:8725 {
         flush_interval -1
         transport http {
             read_timeout 1h
@@ -365,7 +365,7 @@ server {
     proxy_send_timeout 3600s;
 
     location / {
-        proxy_pass http://127.0.0.1:8080;
+        proxy_pass http://127.0.0.1:8725;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $remote_addr;   # 只傳遞直接連線的 IP
         proxy_set_header X-Forwarded-Proto https;
@@ -373,7 +373,7 @@ server {
 }
 ```
 
-使用反向代理時，在 `.env` 設定 `MISTBOX_TRUST_PROXY=true`，讓登入與 API 的限流以真實用戶端 IP 計算。只有在 8080 埠不對外開放時才可以這樣設定，否則他人可偽造 IP。
+使用反向代理時，在 `.env` 設定 `MISTBOX_TRUST_PROXY=true`，讓登入與 API 的限流以真實用戶端 IP 計算。只有在 8725 埠不對外開放時才可以這樣設定，否則他人可偽造 IP。
 
 `MISTBOX_COOKIE_SECURE` 請保持 `true`。Session cookie 會以 `__Host-` 前綴、`Secure; HttpOnly; SameSite=Strict` 送出，`http://localhost` 也可正常使用。
 
@@ -515,7 +515,7 @@ npm run dev                                   # Vite，/api 代理到 127.0.0.1:
 scripts/e2e.sh                                # 主機 DNS 特殊時：MISTBOX_BUILD_NETWORK=host scripts/e2e.sh
 ```
 
-若主機使用 Tailscale exit node 等會攔截所有路由的設定，主機無法連到 Docker bridge 網段，`127.0.0.1:8080` 的轉發也會無回應。這時可以：
+若主機使用 Tailscale exit node 等會攔截所有路由的設定，主機無法連到 Docker bridge 網段，`127.0.0.1:8725` 的轉發也會無回應。這時可以：
 
 - 加上 `E2E_VIA_CONTAINER=1`：讓 HTTP 請求改由一個共用 app 網路命名空間的輔助容器發出，其餘步驟仍在主機上執行。
 - 日常使用時，在 Tailscale 設定中允許 LAN 存取（`--exit-node-allow-lan-access`），或為 `172.16.0.0/12` 加上走 main table 的路由規則。
