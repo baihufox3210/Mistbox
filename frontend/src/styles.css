@@ -208,10 +208,8 @@ html[data-has-bg] body::after {
   z-index: -1;
 }
 html[data-has-bg] body { background: transparent; }
-html[data-has-bg] .topbar,
 html[data-has-bg] .explorer-pane,
 html[data-has-bg] .drive-side,
-html[data-has-bg] .statusbar,
 html[data-has-bg] .tabs { background: color-mix(in srgb, var(--surface-2) calc(var(--glass) * 100%), transparent); backdrop-filter: blur(calc(var(--mb-bg-dim) * 10px)); }
 html[data-has-bg] .drive-main,
 html[data-has-bg] .editor-pane,
@@ -820,3 +818,15 @@ html[data-has-bg] .code-host .cm-editor {
 html[data-has-bg] .code-host .cm-gutters {
   background: color-mix(in srgb, var(--code-gutter-bg) calc(var(--glass) * 100%), transparent);
 }
+
+/* Keep bar text readable even when the main background is fully transparent. */
+:root { --bar-glass-rgb: 218, 228, 238; }
+html[data-theme='dark'] { --bar-glass-rgb: 3, 6, 9; }
+html[data-has-bg] .topbar,
+html[data-has-bg] .statusbar {
+  background: rgba(var(--bar-glass-rgb), max(0.78, var(--mb-bg-dim)));
+  -webkit-backdrop-filter: blur(16px) saturate(0.8);
+  backdrop-filter: blur(16px) saturate(0.8);
+  color: var(--text);
+}
+html[data-has-bg] .statusbar { position: relative; z-index: 1; }
