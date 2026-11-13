@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, errorText, setCsrf, type NodeInfo } from '../api';
 import { formatSize } from '../format';
 import { Icon } from './Icon';
+import { useCaps } from '../caps';
 
 export function Modal({
   title,
@@ -142,6 +143,7 @@ export function DeleteDialog({
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [permanent, setPermanent] = useState(inTrash);
+  const { admin } = useCaps();
   useEffect(() => {
     let cancelled = false;
     Promise.all(items.map((i) => (i.kind === 'dir' ? api.info(i.id, true).then((n) => n.stats!) : Promise.resolve({ files: 1, dirs: 0, bytes: i.size }))))
@@ -162,7 +164,7 @@ export function DeleteDialog({
             即將<strong>永久刪除</strong>下列 {items.length} 個項目，<strong>無法復原</strong>：
           </>
         ) : (
-          <>下列 {items.length} 個項目會移到垃圾桶，可在垃圾桶中還原：</>
+          <>下列 {items.length} 個項目會移到垃圾桶，{admin ? '可在垃圾桶中還原' : '之後只有分享者能還原'}：</>
         )}
       </p>
       <ul className="delete-list">
@@ -176,7 +178,7 @@ export function DeleteDialog({
       <p className="muted">
         {stats ? `共 ${stats.files} 個檔案、${Math.max(0, stats.dirs)} 個資料夾，${formatSize(stats.bytes)}。` : '計算內容中…'}
       </p>
-      {!inTrash && (
+      {!inTrash && admin && (
         <label className="check">
           <input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} /> 略過垃圾桶，直接永久刪除
         </label>

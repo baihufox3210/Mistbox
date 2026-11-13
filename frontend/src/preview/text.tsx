@@ -4,6 +4,7 @@ import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { formatSize } from '../format';
 import { Info } from './Info';
+import { useCaps } from '../caps';
 
 export function useText(id: string) {
   const [data, setData] = useState<TextPreview | null>(null);
@@ -98,7 +99,8 @@ export interface EditorHooks {
 
 /** Draft / save state for an editable text file (UTF-8, not truncated). */
 export function useEditing(node: NodeInfo, d: TextPreview | null, hooks?: EditorHooks) {
-  const canEdit = !!d && !d.binary && !d.truncated && (d.valid_utf8 || d.size === 0) && d.encoding === 'UTF-8';
+  const caps = useCaps();
+  const canEdit = caps.write && !!d && !d.binary && !d.truncated && (d.valid_utf8 || d.size === 0) && d.encoding === 'UTF-8';
   const [editing, setEditing] = useState(!!hooks?.startEditing);
   const [base, setBase] = useState<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);

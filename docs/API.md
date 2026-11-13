@@ -128,6 +128,19 @@ Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8725/api
 | GET | `/trash` | 垃圾桶內容：原名稱、原路徑、`trashed_at`、`purge_at` |
 | POST | `/trash/{id}/restore` | 還原到原位置（同名時自動編號；原資料夾不存在則還原到根目錄） |
 | DELETE | `/trash` | 清空垃圾桶（永久刪除） |
+| GET | `/shares?node_id=…` | 分享連結列表（省略 `node_id` 則列出全部）：項目路徑、`permission`、`status`（active / expired / unavailable）、`expires_at`、`use_count`、`last_used_at` |
+| POST | `/shares` | `{"node_id","permission":"view"\|"edit","expires_at":RFC3339\|null,"label"}` → `{"link":"/s/<id>#<secret>","share":…}`；完整連結只在這裡出現一次 |
+| PATCH | `/shares/{id}` | 修改 `permission`、`expires_at`（`null` = 永不過期）、`label` |
+| DELETE | `/shares/{id}` | 刪除連結，立即失效 |
+
+## 分享連結（持有連結的人）
+
+連結 `/s/<id>#<secret>` 的持有者，把 `X-Share-Token: mbs_<id>_<secret>` 放在標頭，就能呼叫一般的檔案端點（`/nodes/…`、`/search`、`/fs/…`）。`root` 代表被分享的項目。
+
+- 權限等同一把範圍為該項目的 API Key：一律有 list + read，`edit` 連結另有 write。永遠看不到敏感檔與垃圾桶。
+- 不能使用 `/keys`、`/shares`、`/trash`、`/settings`、`/rag/*`；不能永久刪除，也不能修改被分享項目本身。
+- `POST /share/open`：檢查連結並回傳 `{id, permission, label, expires_at, root}`，同時設定只給這個分享使用的 HttpOnly cookie。之後瀏覽器自己發出的 GET（`<img>`、影音、下載）在網址加上 `?share=<id>` 即可通過驗證。
+- 連結無效、過期或已刪除時一律回 404，錯誤碼為 `share_invalid`。
 
 `GET /health`：不需認證，回傳 `{"status":"ok"}`。
 

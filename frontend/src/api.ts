@@ -54,6 +54,29 @@ export interface TrashItem extends NodeInfo {
   purge_at: string | null;
 }
 
+export type SharePermission = 'view' | 'edit';
+
+export interface ShareInfo {
+  id: string;
+  node: { id: string; name: string; kind: 'dir' | 'file'; path: string } | null;
+  permission: SharePermission;
+  label: string;
+  status: 'active' | 'expired' | 'unavailable';
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+}
+
+/** What a link holder gets from `POST /share/open`. */
+export interface OpenedShare {
+  id: string;
+  permission: SharePermission;
+  label: string;
+  expires_at: string | null;
+  root: NodeInfo;
+}
+
 export interface UiSettings {
   background_url: string;
   background_dim: number;
@@ -105,6 +128,29 @@ export const setCsrf = (t: string) => {
   csrf = t;
 };
 
+/**
+ * Share-link mode: every request carries `X-Share-Token` (kept in memory,
+ * read from the URL fragment). Browser-initiated GETs (img/video/download)
+ * name the share with `?share=<id>` and use the HttpOnly cookie set by
+ * `api.shareOpen()`.
+ */
+let share: { id: string; token: string } | null = null;
+export const setShare = (id: string, secret: string) => {
+  share = { id, token: `mbs_${id}_${secret}` };
+};
+export const inShareMode = () => share !== null;
+
+function authHeaders(method: string): Record<string, string> {
+  if (share) return { 'X-Share-Token': share.token };
+  return method !== 'GET' && method !== 'HEAD' ? { 'X-CSRF-Token': csrf } : {};
+}
+
+/** Append `share=<id>` for URLs the browser fetches by itself. */
+function withShare(url: string): string {
+  if (!share) return url;
+  return url + (url.includes('?') ? '&' : '?') + 'share=' + share.id;
+}
+
 export const UNAUTHORIZED_EVENT = 'mistbox:unauthorized';
 
 async function toError(res: Response): Promise<ApiError> {
@@ -120,8 +166,7 @@ async function toError(res: Response): Promise<ApiError> {
 }
 
 async function raw(method: string, url: string, body?: unknown): Promise<Response> {
-  const headers: Record<string, string> = {};
-  if (method !== 'GET' && method !== 'HEAD') headers['X-CSRF-Token'] = csrf;
+  const headers: Record<string, string> = authHeaders(method);
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
   try {
@@ -136,7 +181,7 @@ async function raw(method: string, url: string, body?: unknown): Promise<Respons
   }
   if (!res.ok) {
     const err = await toError(res);
-    if (res.status === 401 && !url.endsWith('/auth/login') && !url.endsWith('/auth/me')) {
+    if (res.status === 401 && !share && !url.endsWith('/auth/login') && !url.endsWith('/auth/me')) {
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
     throw err;
@@ -199,7 +244,7 @@ export const api = {
     try {
       res = await fetch(`${V}/nodes/${q(id)}/content`, {
         method: 'PUT',
-        headers: { 'X-CSRF-Token': csrf, 'If-Match': `"${sha}"`, 'Content-Type': 'application/octet-stream' },
+        headers: { ...authHeaders('PUT'), 'If-Match': `"${sha}"`, 'Content-Type': 'application/octet-stream' },
         body: new TextEncoder().encode(text),
         credentials: 'same-origin',
       });
@@ -218,6 +263,16 @@ export const api = {
     json<{ results: RagHit[] }>('GET', `${V}/rag/search?q=${q(query)}&k=${k}`),
   ragReindex: () => json<{ ok: boolean }>('POST', `${V}/rag/reindex`),
 
+  shares: (nodeId?: string) =>
+    json<{ shares: ShareInfo[] }>('GET', `${V}/shares${nodeId ? `?node_id=${q(nodeId)}` : ''}`),
+  /** The returned `link` (relative, contains the secret) is only available now. */
+  createShare: (body: { node_id: string; permission: SharePermission; expires_at: string | null; label?: string }) =>
+    json<{ link: string; share: ShareInfo }>('POST', `${V}/shares`, body),
+  updateShare: (id: string, patch: { permission?: SharePermission; expires_at?: string | null; label?: string }) =>
+    json<ShareInfo>('PATCH', `${V}/shares/${q(id)}`, patch),
+  deleteShare: (id: string) => json<void>('DELETE', `${V}/shares/${q(id)}`),
+  shareOpen: () => json<OpenedShare>('POST', `${V}/share/open`),
+
   keys: () => json<{ keys: ApiKeyInfo[] }>('GET', `${V}/keys`),
   createKey: (body: {
     name: string;
@@ -229,8 +284,8 @@ export const api = {
   revokeKey: (id: string) => json<ApiKeyInfo>('DELETE', `${V}/keys/${q(id)}`),
 };
 
-export const contentUrl = (id: string, inline = false) => `${V}/nodes/${q(id)}/content${inline ? '?inline=1' : ''}`;
-export const relativeUrl = (id: string, path: string) => `${V}/nodes/${q(id)}/relative?path=${q(path)}`;
+export const contentUrl = (id: string, inline = false) => withShare(`${V}/nodes/${q(id)}/content${inline ? '?inline=1' : ''}`);
+export const relativeUrl = (id: string, path: string) => withShare(`${V}/nodes/${q(id)}/relative?path=${q(path)}`);
 
 export type ConflictPolicy = 'fail' | 'rename';
 
@@ -248,7 +303,7 @@ export function uploadFile(
   if (file.lastModified) params.set('mtime', String(Math.floor(file.lastModified / 1000)));
   const promise = new Promise<NodeInfo>((resolve, reject) => {
     xhr.open('POST', `${V}/nodes/${q(dirId)}/files?${params}`);
-    xhr.setRequestHeader('X-CSRF-Token', csrf);
+    for (const [k, v] of Object.entries(authHeaders('POST'))) xhr.setRequestHeader(k, v);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.upload.onprogress = (e) => opts.onProgress?.(e.loaded, e.lengthComputable ? e.total : file.size);
     xhr.onload = () => {
@@ -260,7 +315,7 @@ export function uploadFile(
       }
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as NodeInfo);
       else {
-        if (xhr.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+        if (xhr.status === 401 && !share) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
         const e = body.error ?? { code: 'http_' + xhr.status, message: `HTTP ${xhr.status}` };
         reject(new ApiError(xhr.status, e.code, e.message));
       }

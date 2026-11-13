@@ -1,20 +1,20 @@
 use std::time::Duration;
 
 use axum::{
-    extract::{Request, State},
-    http::{header, StatusCode},
-    response::{IntoResponse, Response},
     Json,
+    extract::{Request, State},
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::{
+    AppState,
     auth::{self, AdminSession, Principal},
     error::{ApiError, ApiResult},
     nodes,
     util::{opt_ts, sha256_hex},
-    AppState,
 };
 
 #[derive(Deserialize)]
@@ -24,7 +24,11 @@ pub struct LoginBody {
 }
 
 fn login_response(state: &AppState, username: &str, s: auth::NewSession) -> Response {
-    let cookie = auth::session_cookie(state.cfg.cookie_secure, &s.token, state.cfg.session_ttl_hours * 3600);
+    let cookie = auth::session_cookie(
+        state.cfg.cookie_secure,
+        &s.token,
+        state.cfg.session_ttl_hours * 3600,
+    );
     (
         [(header::SET_COOKIE, cookie)],
         Json(json!({ "username": username, "csrf_token": s.csrf })),
@@ -35,15 +39,25 @@ fn login_response(state: &AppState, username: &str, s: auth::NewSession) -> Resp
 pub async fn login(State(state): State<AppState>, req: Request) -> ApiResult<Response> {
     let ip = auth::client_ip(req.headers(), req.extensions(), state.cfg.trust_proxy);
     let limit_key = format!("login:{ip}");
-    if let Err(retry) = state.limiter.hit(&limit_key, state.cfg.login_attempts, Duration::from_secs(15 * 60)) {
+    if let Err(retry) = state.limiter.hit(
+        &limit_key,
+        state.cfg.login_attempts,
+        Duration::from_secs(15 * 60),
+    ) {
         return Err(auth::rate_limited(retry));
     }
     let bytes = axum::body::to_bytes(req.into_body(), 64 * 1024)
         .await
         .map_err(|_| ApiError::bad_request("請求內容過大"))?;
-    let body: LoginBody = serde_json::from_slice(&bytes).map_err(|_| ApiError::bad_request("需要 username 與 password"))?;
-    let Some(user) = auth::check_login(&state.db, body.username.trim(), &body.password).await? else {
-        return Err(ApiError::new(StatusCode::UNAUTHORIZED, "invalid_credentials", "帳號或密碼錯誤"));
+    let body: LoginBody = serde_json::from_slice(&bytes)
+        .map_err(|_| ApiError::bad_request("需要 username 與 password"))?;
+    let Some(user) = auth::check_login(&state.db, body.username.trim(), &body.password).await?
+    else {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "invalid_credentials",
+            "帳號或密碼錯誤",
+        ));
     };
     state.limiter.reset(&limit_key);
     let s = auth::create_session(&state.db, user.id, state.cfg.session_ttl_hours).await?;
@@ -51,10 +65,17 @@ pub async fn login(State(state): State<AppState>, req: Request) -> ApiResult<Res
     Ok(login_response(&state, &user.username, s))
 }
 
-pub async fn logout(State(state): State<AppState>, _s: AdminSession, req: Request) -> ApiResult<Response> {
+pub async fn logout(
+    State(state): State<AppState>,
+    _s: AdminSession,
+    req: Request,
+) -> ApiResult<Response> {
     let (parts, _) = req.into_parts();
     if let Some(tok) = auth::session_token_from_headers(&parts, state.cfg.cookie_secure) {
-        sqlx::query("DELETE FROM sessions WHERE token_hash = ?").bind(sha256_hex(&tok)).execute(&state.db).await?;
+        sqlx::query("DELETE FROM sessions WHERE token_hash = ?")
+            .bind(sha256_hex(&tok))
+            .execute(&state.db)
+            .await?;
     }
     let cookie = auth::session_cookie(state.cfg.cookie_secure, "", 0);
     Ok(([(header::SET_COOKIE, cookie)], StatusCode::NO_CONTENT).into_response())
@@ -75,8 +96,15 @@ pub async fn change_password(
     s: AdminSession,
     Json(body): Json<PasswordBody>,
 ) -> ApiResult<Response> {
-    if auth::check_login(&state.db, &s.username, &body.current_password).await?.is_none() {
-        return Err(ApiError::new(StatusCode::FORBIDDEN, "invalid_credentials", "目前密碼不正確"));
+    if auth::check_login(&state.db, &s.username, &body.current_password)
+        .await?
+        .is_none()
+    {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "invalid_credentials",
+            "目前密碼不正確",
+        ));
     }
     auth::check_password_policy(&body.new_password).map_err(ApiError::bad_request)?;
     auth::set_password(&state.db, s.user_id, &body.new_password).await?;
@@ -85,7 +113,10 @@ pub async fn change_password(
 }
 
 /// Works for both sessions and API keys: describes the caller.
-pub async fn whoami(State(state): State<AppState>, p: Principal) -> ApiResult<Json<serde_json::Value>> {
+pub async fn whoami(
+    State(state): State<AppState>,
+    p: Principal,
+) -> ApiResult<Json<serde_json::Value>> {
     Ok(Json(match &p {
         Principal::Admin { username, .. } => json!({ "type": "session", "username": username }),
         Principal::Key(k) => {
@@ -100,5 +131,11 @@ pub async fn whoami(State(state): State<AppState>, p: Principal) -> ApiResult<Js
                 "expires_at": opt_ts(k.expires_at),
             })
         }
+        Principal::Share(sh) => json!({
+            "type": "share",
+            "id": sh.id,
+            "permissions": { "list": true, "read": true, "write": sh.can_write },
+            "expires_at": opt_ts(sh.expires_at),
+        }),
     }))
 }

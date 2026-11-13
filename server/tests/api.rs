@@ -1730,3 +1730,460 @@ async fn pdf_skipped_without_worker() {
         (Some(1), Some(false))
     );
 }
+
+/// Request as a share-link holder (`X-Share-Token`).
+async fn as_share(t: &T, token: &str, m: Method, uri: &str, body: Vec<u8>) -> Resp {
+    t.raw(
+        m,
+        uri,
+        &[
+            ("x-share-token", token),
+            ("content-type", "application/json"),
+        ],
+        body,
+    )
+    .await
+}
+
+/// Create a share; returns (id, header token, link).
+async fn make_share(t: &T, body: Value) -> (String, String, String) {
+    let r = t.admin(Method::POST, "/api/v1/shares", Some(body)).await;
+    assert_eq!(r.status, StatusCode::CREATED, "{:?}", r.json());
+    let link = r.json()["link"].as_str().unwrap().to_string();
+    let (path, secret) = link.split_once('#').unwrap();
+    let id = path.strip_prefix("/s/").unwrap().to_string();
+    assert_eq!(r.json()["share"]["id"], id.as_str());
+    (id.clone(), format!("mbs_{id}_{secret}"), link)
+}
+
+#[tokio::test]
+async fn share_links_view_edit_expiry_and_isolation() {
+    let t = T::new().await;
+    let proj = t.mkdir("root", "proj").await;
+    let sub = t.mkdir(&proj, "sub").await;
+    let other = t.mkdir("root", "other").await;
+    let a = t.upload(&proj, "a.md", b"# hello").await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    t.upload(&proj, ".env", b"SECRET=1").await;
+    let secret_file = t.upload(&other, "secret.txt", b"nope").await.json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Sensitive items and the bin cannot be shared; bad permission rejected.
+    let env_id = sqlx::query_scalar::<_, String>("SELECT id FROM nodes WHERE name = '.env'")
+        .fetch_one(&t.state.db)
+        .await
+        .unwrap();
+    for body in [
+        json!({"node_id": env_id}),
+        json!({"node_id": "trash"}),
+        json!({"node_id": proj, "permission": "owner"}),
+    ] {
+        assert_eq!(
+            t.admin(Method::POST, "/api/v1/shares", Some(body))
+                .await
+                .status,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    assert_eq!(
+        t.admin(
+            Method::POST,
+            "/api/v1/shares",
+            Some(json!({"node_id": proj, "expires_at": past}))
+        )
+        .await
+        .status,
+        StatusCode::BAD_REQUEST
+    );
+
+    let soon = (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+    let (id, tok, link) = make_share(
+        &t,
+        json!({"node_id": proj, "expires_at": soon, "label": "給同事"}),
+    )
+    .await;
+    assert!(link.starts_with("/s/") && link.contains('#'));
+
+    // Open: describes the share and sets a per-share HttpOnly cookie.
+    let r = as_share(&t, &tok, Method::POST, "/api/v1/share/open", vec![]).await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    assert_eq!(r.json()["permission"], "view");
+    assert_eq!(r.json()["root"]["name"], "proj");
+    assert_eq!(r.json()["root"]["parent_id"], Value::Null);
+    let cookie = r.h("set-cookie");
+    assert!(
+        cookie.starts_with(&format!("mbs_{id}="))
+            && cookie.contains("HttpOnly")
+            && cookie.contains("SameSite=Strict"),
+        "{cookie}"
+    );
+    let cookie = cookie.split(';').next().unwrap().to_string();
+
+    // View: list the shared folder (root alias = share root), sensitive hidden.
+    let r = as_share(&t, &tok, Method::GET, "/api/v1/nodes/root/children", vec![]).await;
+    assert_eq!(r.status, StatusCode::OK);
+    let names: Vec<String> = r.json()["children"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(names, vec!["sub".to_string(), "a.md".to_string()]);
+    assert_eq!(
+        as_share(
+            &t,
+            &tok,
+            Method::GET,
+            &format!("/api/v1/nodes/{a}/content"),
+            vec![]
+        )
+        .await
+        .body,
+        b"# hello"
+    );
+    // Outside the share → 404; writes → 403 with a clear message.
+    assert_eq!(
+        as_share(
+            &t,
+            &tok,
+            Method::GET,
+            &format!("/api/v1/nodes/{secret_file}/content"),
+            vec![]
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        as_share(
+            &t,
+            &tok,
+            Method::GET,
+            &format!("/api/v1/nodes/{other}/children"),
+            vec![]
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    let r = as_share(
+        &t,
+        &tok,
+        Method::POST,
+        &format!("/api/v1/nodes/{sub}/files?name=x.txt"),
+        b"x".to_vec(),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert!(
+        r.json()["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("只能檢視")
+    );
+    // Search stays inside the share.
+    let r = as_share(&t, &tok, Method::GET, "/api/v1/search?q=secret", vec![]).await;
+    assert_eq!(r.json()["results"].as_array().unwrap().len(), 0);
+
+    // Cookie: only for GETs that name the share.
+    let with_cookie = |uri: String, m: Method| {
+        let c = cookie.clone();
+        let t = &t;
+        async move { t.raw(m, &uri, &[("cookie", &c)], vec![]).await }
+    };
+    assert_eq!(
+        with_cookie(format!("/api/v1/nodes/{a}/content?share={id}"), Method::GET)
+            .await
+            .status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        with_cookie(format!("/api/v1/nodes/{a}/content"), Method::GET)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        with_cookie(
+            format!("/api/v1/nodes/{secret_file}/content?share={id}"),
+            Method::GET
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        with_cookie(format!("/api/v1/nodes/{a}?share={id}"), Method::DELETE)
+            .await
+            .status,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // Admin-only surfaces are closed to shares.
+    for (m, uri) in [
+        (Method::GET, "/api/v1/keys"),
+        (Method::GET, "/api/v1/shares"),
+        (Method::GET, "/api/v1/trash"),
+        (Method::GET, "/api/v1/settings"),
+        (Method::GET, "/api/v1/rag/search?q=x"),
+    ] {
+        assert_eq!(
+            as_share(&t, &tok, m, uri, vec![]).await.status,
+            StatusCode::FORBIDDEN,
+            "{uri}"
+        );
+    }
+
+    // Upgrade to edit: upload, mkdir, rename, trash — but not the share root,
+    // not permanent deletion, not the sensitive flag.
+    let r = t
+        .admin(
+            Method::PATCH,
+            &format!("/api/v1/shares/{id}"),
+            Some(json!({"permission": "edit"})),
+        )
+        .await;
+    assert_eq!(r.json()["permission"], "edit");
+    assert!(
+        r.json()["expires_at"].is_string(),
+        "expiry unchanged when omitted"
+    );
+    let r = as_share(
+        &t,
+        &tok,
+        Method::POST,
+        &format!("/api/v1/nodes/{sub}/files?name=up.txt"),
+        b"from share".to_vec(),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::CREATED, "{:?}", r.json());
+    let up = r.json()["id"].as_str().unwrap().to_string();
+    let r = as_share(
+        &t,
+        &tok,
+        Method::POST,
+        "/api/v1/nodes/root/children",
+        json!({"name":"new"}).to_string().into_bytes(),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::CREATED);
+    let r = as_share(
+        &t,
+        &tok,
+        Method::PATCH,
+        &format!("/api/v1/nodes/{up}"),
+        json!({"name":"renamed.txt"}).to_string().into_bytes(),
+    )
+    .await;
+    assert_eq!(r.json()["name"], "renamed.txt");
+    let r = as_share(
+        &t,
+        &tok,
+        Method::PATCH,
+        &format!("/api/v1/nodes/{up}"),
+        json!({"sensitive":true}).to_string().into_bytes(),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    let r = as_share(
+        &t,
+        &tok,
+        Method::PATCH,
+        &format!("/api/v1/nodes/{up}"),
+        json!({"parent_id": other}).to_string().into_bytes(),
+    )
+    .await;
+    assert_eq!(
+        r.status,
+        StatusCode::NOT_FOUND,
+        "cannot move out of the share"
+    );
+    let r = as_share(
+        &t,
+        &tok,
+        Method::PATCH,
+        "/api/v1/nodes/root",
+        json!({"name":"hijack"}).to_string().into_bytes(),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN, "share root is immutable");
+    assert_eq!(
+        as_share(
+            &t,
+            &tok,
+            Method::DELETE,
+            &format!("/api/v1/nodes/{up}?permanent=1"),
+            vec![]
+        )
+        .await
+        .status,
+        StatusCode::FORBIDDEN
+    );
+    let r = as_share(
+        &t,
+        &tok,
+        Method::DELETE,
+        &format!("/api/v1/nodes/{up}"),
+        vec![],
+    )
+    .await;
+    assert_eq!(
+        (r.status, r.json()["permanent"].as_bool()),
+        (StatusCode::OK, Some(false))
+    );
+    // The trashed item is gone for the share, restorable by the admin.
+    assert_eq!(
+        as_share(
+            &t,
+            &tok,
+            Method::GET,
+            &format!("/api/v1/nodes/{up}"),
+            vec![]
+        )
+        .await
+        .status,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        t.admin(Method::POST, &format!("/api/v1/trash/{up}/restore"), None)
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    // Listing for the admin shows usage.
+    let r = t
+        .admin(Method::GET, &format!("/api/v1/shares?node_id={proj}"), None)
+        .await;
+    let s = &r.json()["shares"][0];
+    assert_eq!(
+        (
+            s["status"].as_str(),
+            s["label"].as_str(),
+            s["use_count"].as_i64()
+        ),
+        (Some("active"), Some("給同事"), Some(1))
+    );
+    assert_eq!(s["node"]["path"], "/proj");
+
+    // A wrong secret or a malformed token is rejected the same way.
+    let bad = format!("{}0", &tok[..tok.len() - 1]);
+    for token in [bad.as_str(), "mbs_zz_zz", "garbage"] {
+        let r = as_share(
+            &t,
+            token,
+            Method::GET,
+            "/api/v1/nodes/root/children",
+            vec![],
+        )
+        .await;
+        assert_eq!(
+            (r.status, r.code()),
+            (StatusCode::NOT_FOUND, "share_invalid".to_string()),
+            "{token}"
+        );
+    }
+
+    // Expired → invalid; clearing the expiry (null) revives it.
+    sqlx::query("UPDATE shares SET expires_at = 1 WHERE id = ?")
+        .bind(&id)
+        .execute(&t.state.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        as_share(&t, &tok, Method::GET, "/api/v1/nodes/root/children", vec![])
+            .await
+            .code(),
+        "share_invalid"
+    );
+    let r = t
+        .admin(
+            Method::PATCH,
+            &format!("/api/v1/shares/{id}"),
+            Some(json!({"expires_at": null})),
+        )
+        .await;
+    assert_eq!(r.json()["expires_at"], Value::Null);
+    assert_eq!(
+        as_share(&t, &tok, Method::GET, "/api/v1/nodes/root/children", vec![])
+            .await
+            .status,
+        StatusCode::OK
+    );
+
+    // Shared folder moved to the bin → link stops working.
+    t.admin(Method::DELETE, &format!("/api/v1/nodes/{proj}"), None)
+        .await;
+    assert_eq!(
+        as_share(&t, &tok, Method::POST, "/api/v1/share/open", vec![])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+    t.admin(Method::POST, &format!("/api/v1/trash/{proj}/restore"), None)
+        .await;
+
+    // Deleted → gone.
+    assert_eq!(
+        t.admin(Method::DELETE, &format!("/api/v1/shares/{id}"), None)
+            .await
+            .status,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        as_share(&t, &tok, Method::GET, "/api/v1/nodes/root/children", vec![])
+            .await
+            .status,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn file_share_edit_allows_saving_content_only() {
+    let t = T::new().await;
+    let f = t.upload("root", "note.txt", b"v1").await.json();
+    let (id, sha) = (
+        f["id"].as_str().unwrap().to_string(),
+        f["sha256"].as_str().unwrap().to_string(),
+    );
+    let (_, tok, _) = make_share(&t, json!({"node_id": id, "permission": "edit"})).await;
+    let r = as_share(&t, &tok, Method::GET, "/api/v1/nodes/root", vec![]).await;
+    assert_eq!(r.json()["name"], "note.txt");
+    let etag = format!("\"{sha}\"");
+    let r = t
+        .raw(
+            Method::PUT,
+            &format!("/api/v1/nodes/{id}/content"),
+            &[("x-share-token", &tok), ("if-match", &etag)],
+            b"v2".to_vec(),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    assert_eq!(
+        t.admin(Method::GET, &format!("/api/v1/nodes/{id}/content"), None)
+            .await
+            .body,
+        b"v2"
+    );
+    // …but cannot rename or delete the shared file itself.
+    let r = as_share(
+        &t,
+        &tok,
+        Method::PATCH,
+        "/api/v1/nodes/root",
+        json!({"name":"x"}).to_string().into_bytes(),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert_eq!(
+        as_share(&t, &tok, Method::DELETE, "/api/v1/nodes/root", vec![])
+            .await
+            .status,
+        StatusCode::FORBIDDEN
+    );
+}

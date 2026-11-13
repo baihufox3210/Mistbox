@@ -24,6 +24,8 @@ export type Dialog =
   | { t: 'settings'; section?: string }
   | { t: 'confirm-close'; id: string }
   | { t: 'trash' }
+  | { t: 'share'; item: NodeInfo }
+  | { t: 'shares' }
   | null;
 
 function readUrl() {
@@ -31,7 +33,8 @@ function readUrl() {
   return { dir: p.get('dir') || 'root', file: p.get('file') };
 }
 
-export function useDrive() {
+export function useDrive(opts: { admin?: boolean } = {}) {
+  const admin = opts.admin ?? true;
   const [dirId, setDirId] = useState(readUrl().dir);
   const [listing, setListing] = useState<Listing | null>(null);
   const [listErr, setListErr] = useState<unknown>(null);
@@ -82,7 +85,8 @@ export function useDrive() {
     const p = new URLSearchParams();
     if (dir !== 'root') p.set('dir', dir);
     if (file) p.set('file', file);
-    const url = `${window.location.pathname}${p.toString() ? '?' + p : ''}`;
+    // Keep the fragment: on share pages it holds the link secret.
+    const url = `${window.location.pathname}${p.toString() ? '?' + p : ''}${window.location.hash}`;
     if (push) window.history.pushState(null, '', url);
     else window.history.replaceState(null, '', url);
   }, []);
@@ -238,7 +242,8 @@ export function useDrive() {
       setTabs((t) => t.filter((x) => !set.has(x.node.id)));
       if (activeRef.current && set.has(activeRef.current)) setActive(null);
       bump();
-      if (!permanent)
+      if (!permanent && !admin) toast(`已將 ${ids.length} 個項目移到垃圾桶（分享者可以還原）`);
+      else if (!permanent)
         toast(`已將 ${ids.length} 個項目移到垃圾桶`, {
           label: '復原',
           run: async () => {

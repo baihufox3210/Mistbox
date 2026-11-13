@@ -5,6 +5,7 @@ import { previewKind } from '../fileTypes';
 import { applyBackground } from '../theme';
 import type { DriveModel, Tab } from '../state/useDrive';
 import type { EditorHooks } from '../preview/text';
+import { ADMIN_CAPS, type Caps } from '../caps';
 
 export const DND_TYPE = 'application/x-mistbox-node';
 
@@ -45,44 +46,52 @@ export function setAsBackground(m: DriveModel, n: NodeInfo) {
 }
 
 /** Context menu for a node (shared by both layouts). */
-export function nodeMenu(m: DriveModel, n: NodeInfo, selection: NodeInfo[], open: () => void): MenuItem[] {
+export function nodeMenu(m: DriveModel, n: NodeInfo, selection: NodeInfo[], open: () => void, caps: Caps = ADMIN_CAPS): MenuItem[] {
   const many = selection.length > 1 && selection.some((s) => s.id === n.id) ? selection : [n];
   const items: MenuItem[] = [];
   if (n.kind === 'dir') {
-    items.push(
-      { label: '開啟', icon: 'folderOpen', action: open },
-      { separator: true, label: '' },
-      { label: '新增檔案', icon: 'filePlus', action: () => m.actions.newFile(n.id) },
-      { label: '新增資料夾', icon: 'folderPlus', action: () => m.actions.newFolder(n.id) },
-      { label: '上傳檔案到這裡', icon: 'upload', action: () => m.actions.upload(n.id) },
-      { label: '上傳資料夾到這裡', icon: 'folder', action: () => m.actions.uploadFolder(n.id) },
-    );
+    items.push({ label: '開啟', icon: 'folderOpen', action: open });
+    if (caps.write)
+      items.push(
+        { separator: true, label: '' },
+        { label: '新增檔案', icon: 'filePlus', action: () => m.actions.newFile(n.id) },
+        { label: '新增資料夾', icon: 'folderPlus', action: () => m.actions.newFolder(n.id) },
+        { label: '上傳檔案到這裡', icon: 'upload', action: () => m.actions.upload(n.id) },
+        { label: '上傳資料夾到這裡', icon: 'folder', action: () => m.actions.uploadFolder(n.id) },
+      );
   } else {
     items.push({ label: '開啟', icon: 'external', action: open }, { label: '下載', icon: 'download', action: () => m.actions.download(n) });
-    if (previewKind(n.name) === 'image') items.push({ label: '設為背景圖片', icon: 'image', action: () => setAsBackground(m, n) });
+    if (caps.admin && previewKind(n.name) === 'image') items.push({ label: '設為背景圖片', icon: 'image', action: () => setAsBackground(m, n) });
   }
-  items.push(
-    { separator: true, label: '' },
-    { label: '重新命名', icon: 'edit', shortcut: 'F2', disabled: many.length > 1, action: () => m.actions.rename(n) },
-    { label: many.length > 1 ? `移動 ${many.length} 個項目` : '移動到…', icon: 'move', action: () => m.actions.move(many) },
-    { label: '複製路徑', icon: 'copy', action: () => m.actions.copyPath(n) },
-    { separator: true, label: '' },
-    { label: many.length > 1 ? `刪除 ${many.length} 個項目` : '刪除', icon: 'trash', shortcut: 'Del', danger: true, action: () => m.actions.remove(many) },
-  );
+  if (caps.admin)
+    items.push({ separator: true, label: '' }, { label: '分享連結…', icon: 'link', disabled: many.length > 1, action: () => m.setDialog({ t: 'share', item: n }) });
+  if (caps.write)
+    items.push(
+      { separator: true, label: '' },
+      { label: '重新命名', icon: 'edit', shortcut: 'F2', disabled: many.length > 1, action: () => m.actions.rename(n) },
+      { label: many.length > 1 ? `移動 ${many.length} 個項目` : '移動到…', icon: 'move', action: () => m.actions.move(many) },
+    );
+  items.push({ label: '複製路徑', icon: 'copy', action: () => m.actions.copyPath(n) });
+  if (caps.write)
+    items.push(
+      { separator: true, label: '' },
+      { label: many.length > 1 ? `刪除 ${many.length} 個項目` : '刪除', icon: 'trash', shortcut: 'Del', danger: true, action: () => m.actions.remove(many) },
+    );
   return items;
 }
 
-export function emptyMenu(m: DriveModel, target: string, extra: MenuItem[] = []): MenuItem[] {
-  return [
-    { label: '新增檔案', icon: 'filePlus', shortcut: '雙擊空白處', action: () => m.actions.newFile(target) },
-    { label: '新增資料夾', icon: 'folderPlus', action: () => m.actions.newFolder(target) },
-    { separator: true, label: '' },
-    { label: '上傳檔案', icon: 'upload', action: () => m.actions.upload(target) },
-    { label: '上傳資料夾', icon: 'folder', action: () => m.actions.uploadFolder(target) },
-    { separator: true, label: '' },
-    { label: '重新整理', icon: 'refresh', action: m.bump },
-    ...extra,
-  ];
+export function emptyMenu(m: DriveModel, target: string, extra: MenuItem[] = [], caps: Caps = ADMIN_CAPS): MenuItem[] {
+  const write: MenuItem[] = caps.write
+    ? [
+        { label: '新增檔案', icon: 'filePlus', shortcut: '雙擊空白處', action: () => m.actions.newFile(target) },
+        { label: '新增資料夾', icon: 'folderPlus', action: () => m.actions.newFolder(target) },
+        { separator: true, label: '' },
+        { label: '上傳檔案', icon: 'upload', action: () => m.actions.upload(target) },
+        { label: '上傳資料夾', icon: 'folder', action: () => m.actions.uploadFolder(target) },
+        { separator: true, label: '' },
+      ]
+    : [];
+  return [...write, { label: '重新整理', icon: 'refresh', action: m.bump }, ...extra];
 }
 
 /** Move dragged node(s) into a folder. */
@@ -115,14 +124,15 @@ export function useTabHooks(m: DriveModel, tab: Tab | undefined, startEditing: b
   );
 }
 
-export function useRagStatus() {
+export function useRagStatus(enabled = true) {
   const [s, setS] = useState<RagStatus | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     const f = () => api.ragStatus().then(setS, () => {});
     f();
     const t = setInterval(f, 10_000);
     return () => clearInterval(t);
-  }, []);
+  }, [enabled]);
   return s;
 }
 

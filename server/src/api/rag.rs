@@ -24,6 +24,9 @@ fn rag(state: &AppState) -> ApiResult<std::sync::Arc<Rag>> {
 }
 
 fn require_read_flag(p: &Principal) -> ApiResult<()> {
+    if matches!(p, Principal::Share(_)) {
+        return Err(ApiError::forbidden("分享連結不提供語意搜尋"));
+    }
     if let Principal::Key(k) = p
         && !k.can_read
     {

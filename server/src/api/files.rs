@@ -1,18 +1,19 @@
 use axum::{
+    Json,
     body::Body,
     extract::{Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    Json,
 };
 use futures_util::TryStreamExt;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use super::resolve_alias;
 use crate::{
+    AppState,
     auth::Principal,
     authz::{self, Perm},
     error::{ApiError, ApiResult},
@@ -20,17 +21,25 @@ use crate::{
     sensitive,
     storage::StoreError,
     util::{content_disposition, guess_mime},
-    AppState,
 };
 
 // ------------------------------------------------------------------ helpers
 
-pub(crate) async fn view_with_path(state: &AppState, p: &Principal, n: &Node) -> ApiResult<NodeView> {
+pub(crate) async fn view_with_path(
+    state: &AppState,
+    p: &Principal,
+    n: &Node,
+) -> ApiResult<NodeView> {
     let path = nodes::path_of(&state.db, &n.id, p.root_id()).await?;
     Ok(NodeView::from_node(n, p.root_id()).with_path(path))
 }
 
-pub(crate) async fn info_json(state: &AppState, p: &Principal, n: &Node, stats: bool) -> ApiResult<Json<Value>> {
+pub(crate) async fn info_json(
+    state: &AppState,
+    p: &Principal,
+    n: &Node,
+    stats: bool,
+) -> ApiResult<Json<Value>> {
     authz::require_info(state, p, n).await?;
     let mut v = serde_json::to_value(view_with_path(state, p, n).await?).unwrap();
     if stats && n.is_dir() {
@@ -39,16 +48,26 @@ pub(crate) async fn info_json(state: &AppState, p: &Principal, n: &Node, stats: 
     Ok(Json(v))
 }
 
-pub(crate) async fn list_json(state: &AppState, p: &Principal, dir: &Node) -> ApiResult<Json<Value>> {
+pub(crate) async fn list_json(
+    state: &AppState,
+    p: &Principal,
+    dir: &Node,
+) -> ApiResult<Json<Value>> {
     authz::require(state, p, dir, Perm::List).await?;
     if !dir.is_dir() {
         return Err(ApiError::bad_request("不是資料夾"));
     }
     let chain = nodes::ancestors(&state.db, &dir.id).await?;
     let start = chain.iter().position(|n| n.id == p.root_id()).unwrap_or(0);
-    let crumbs: Vec<Value> = chain[start..].iter().map(|n| json!({ "id": n.id, "name": n.name })).collect();
+    let crumbs: Vec<Value> = chain[start..]
+        .iter()
+        .map(|n| json!({ "id": n.id, "name": n.name }))
+        .collect();
     let kids = authz::filter_visible(state, p, nodes::children(&state.db, &dir.id).await?).await?;
-    let kids: Vec<NodeView> = kids.iter().map(|n| NodeView::from_node(n, p.root_id())).collect();
+    let kids: Vec<NodeView> = kids
+        .iter()
+        .map(|n| NodeView::from_node(n, p.root_id()))
+        .collect();
     Ok(Json(json!({
         "node": NodeView::from_node(dir, p.root_id()).with_path(nodes::path_string(&chain, p.root_id())),
         "breadcrumbs": crumbs,
@@ -60,10 +79,31 @@ pub(crate) async fn list_json(state: &AppState, p: &Principal, dir: &Node) -> Ap
 /// Everything else is forced to download as application/octet-stream.
 fn inline_mime(mime: &str) -> Option<&str> {
     const OK: &[&str] = &[
-        "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp", "image/x-icon",
-        "image/vnd.microsoft.icon", "image/svg+xml", "application/pdf", "audio/mpeg", "audio/ogg", "audio/wav",
-        "audio/x-wav", "audio/webm", "audio/flac", "audio/x-flac", "audio/mp4", "audio/aac", "audio/m4a", "audio/x-m4a",
-        "video/mp4", "video/webm", "video/ogg", "video/quicktime",
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/avif",
+        "image/bmp",
+        "image/x-icon",
+        "image/vnd.microsoft.icon",
+        "image/svg+xml",
+        "application/pdf",
+        "audio/mpeg",
+        "audio/ogg",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/webm",
+        "audio/flac",
+        "audio/x-flac",
+        "audio/mp4",
+        "audio/aac",
+        "audio/m4a",
+        "audio/x-m4a",
+        "video/mp4",
+        "video/webm",
+        "video/ogg",
+        "video/quicktime",
     ];
     OK.iter().find(|m| **m == mime).copied()
 }
@@ -84,7 +124,11 @@ fn parse_range(h: &str, size: u64) -> Option<Result<(u64, u64), ()>> {
         (size.saturating_sub(n), size.checked_sub(1)?)
     } else {
         let s: u64 = a.parse().ok()?;
-        let e: u64 = if b.is_empty() { size.saturating_sub(1) } else { b.parse::<u64>().ok()?.min(size.saturating_sub(1)) };
+        let e: u64 = if b.is_empty() {
+            size.saturating_sub(1)
+        } else {
+            b.parse::<u64>().ok()?.min(size.saturating_sub(1))
+        };
         (s, e)
     };
     if size == 0 || start > end || start >= size {
@@ -94,14 +138,25 @@ fn parse_range(h: &str, size: u64) -> Option<Result<(u64, u64), ()>> {
 }
 
 /// Stream a file's bytes. Supports HEAD and single Range requests.
-pub(crate) async fn serve_file(state: &AppState, n: &Node, inline: bool, req_headers: &HeaderMap) -> ApiResult<Response> {
+pub(crate) async fn serve_file(
+    state: &AppState,
+    n: &Node,
+    inline: bool,
+    req_headers: &HeaderMap,
+) -> ApiResult<Response> {
     if !n.is_file() {
         return Err(ApiError::bad_request("資料夾無法直接下載"));
     }
-    let path = state.store.blob_path(n.blob_id.as_deref().unwrap_or_default());
+    let path = state
+        .store
+        .blob_path(n.blob_id.as_deref().unwrap_or_default());
     let mut file = tokio::fs::File::open(&path).await.map_err(|e| {
         tracing::error!(node = %n.id, error = %e, "blob missing");
-        ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "blob_missing", "檔案內容遺失，請執行 verify 檢查")
+        ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "blob_missing",
+            "檔案內容遺失，請執行 verify 檢查",
+        )
     })?;
     let size = file.metadata().await?.len();
     let stored = n.mime.as_deref().unwrap_or("application/octet-stream");
@@ -117,18 +172,28 @@ pub(crate) async fn serve_file(state: &AppState, n: &Node, inline: bool, req_hea
         let etag_ok = req_headers
             .get(header::IF_RANGE)
             .and_then(|v| v.to_str().ok())
-            .is_none_or(|v| n.sha256.as_deref().is_some_and(|s| v.trim_matches('"') == s));
+            .is_none_or(|v| {
+                n.sha256
+                    .as_deref()
+                    .is_some_and(|s| v.trim_matches('"') == s)
+            });
         if etag_ok {
             match parse_range(r, size) {
                 Some(Ok((s, e))) => {
                     status = StatusCode::PARTIAL_CONTENT;
                     start = s;
                     len = e - s + 1;
-                    headers.insert(header::CONTENT_RANGE, format!("bytes {s}-{e}/{size}").parse().unwrap());
+                    headers.insert(
+                        header::CONTENT_RANGE,
+                        format!("bytes {s}-{e}/{size}").parse().unwrap(),
+                    );
                 }
                 Some(Err(())) => {
                     let mut r = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
-                    r.headers_mut().insert(header::CONTENT_RANGE, format!("bytes */{size}").parse().unwrap());
+                    r.headers_mut().insert(
+                        header::CONTENT_RANGE,
+                        format!("bytes */{size}").parse().unwrap(),
+                    );
                     return Ok(r);
                 }
                 None => {}
@@ -142,10 +207,19 @@ pub(crate) async fn serve_file(state: &AppState, n: &Node, inline: bool, req_hea
 
     headers.insert(header::CONTENT_TYPE, ctype.parse().unwrap());
     headers.insert(header::CONTENT_LENGTH, len.into());
-    headers.insert(header::CONTENT_DISPOSITION, HeaderValue::from_str(&content_disposition(disp, &n.name)).unwrap());
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(disp, &n.name)).unwrap(),
+    );
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
-    headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(super::CONTENT_CSP));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(super::CONTENT_CSP),
+    );
     if let Some(sha) = &n.sha256 {
         headers.insert(header::ETAG, format!("\"{sha}\"").parse().unwrap());
         headers.insert("x-content-sha256", sha.parse().unwrap());
@@ -171,7 +245,11 @@ pub async fn info(
     info_json(&state, &p, &n, q.stats).await
 }
 
-pub async fn children(State(state): State<AppState>, p: Principal, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+pub async fn children(
+    State(state): State<AppState>,
+    p: Principal,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
     let n = nodes::get(&state.db, &resolve_alias(&p, &id)).await?;
     list_json(&state, &p, &n).await
 }
@@ -206,7 +284,10 @@ pub async fn mkdir(
 ) -> ApiResult<(StatusCode, Json<NodeView>)> {
     let parent = authz::load(&state, &p, &resolve_alias(&p, &id), Perm::Write).await?;
     let n = nodes::create_dir(&state.db, &parent, b.name.trim()).await?;
-    Ok((StatusCode::CREATED, Json(view_with_path(&state, &p, &n).await?)))
+    Ok((
+        StatusCode::CREATED,
+        Json(view_with_path(&state, &p, &n).await?),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -232,14 +313,19 @@ pub async fn update(
         }
     }
     if let Some(name) = &b.name
-        && name != &n.name {
-            n = nodes::rename(&state.db, &n, name.trim()).await?;
-        }
+        && name != &n.name
+    {
+        n = nodes::rename(&state.db, &n, name.trim()).await?;
+    }
     if let Some(s) = b.sensitive {
-        if matches!(p, Principal::Key(_)) {
-            return Err(ApiError::forbidden("API Key 不能變更敏感標記"));
+        if !p.is_admin() {
+            return Err(ApiError::forbidden(format!("{}不能變更敏感標記", p.who())));
         }
-        sqlx::query("UPDATE nodes SET sensitive = ? WHERE id = ?").bind(s).bind(&n.id).execute(&state.db).await?;
+        sqlx::query("UPDATE nodes SET sensitive = ? WHERE id = ?")
+            .bind(s)
+            .bind(&n.id)
+            .execute(&state.db)
+            .await?;
         n = nodes::get(&state.db, &n.id).await?;
         state.poke_rag();
     }
@@ -264,8 +350,11 @@ pub async fn remove(
     let n = nodes::get(&state.db, &resolve_alias(&p, &id)).await?;
     authz::require_modify(&state, &p, &n).await?;
     let in_trash = nodes::in_trash(&state.db, &n.id).await?;
-    if (q.permanent || in_trash) && matches!(p, Principal::Key(_)) {
-        return Err(ApiError::forbidden("API Key 只能把項目移到垃圾桶，不能永久刪除"));
+    if (q.permanent || in_trash) && !p.is_admin() {
+        return Err(ApiError::forbidden(format!(
+            "{}只能把項目移到垃圾桶，不能永久刪除",
+            p.who()
+        )));
     }
     let (stats, permanent) = if q.permanent || in_trash {
         (nodes::delete(&state.db, &n).await?, true)
@@ -274,7 +363,9 @@ pub async fn remove(
     };
     tracing::info!(node = %n.id, files = stats.files, permanent, "deleted");
     state.poke_rag();
-    Ok(Json(json!({ "deleted": n.id, "permanent": permanent, "stats": stats })))
+    Ok(Json(
+        json!({ "deleted": n.id, "permanent": permanent, "stats": stats }),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -283,14 +374,24 @@ pub struct SearchQuery {
     limit: Option<i64>,
 }
 
-pub async fn search(State(state): State<AppState>, p: Principal, Query(q): Query<SearchQuery>) -> ApiResult<Json<Value>> {
+pub async fn search(
+    State(state): State<AppState>,
+    p: Principal,
+    Query(q): Query<SearchQuery>,
+) -> ApiResult<Json<Value>> {
     let term = q.q.trim();
     if term.is_empty() {
         return Err(ApiError::bad_request("請輸入搜尋字串"));
     }
     let root = nodes::get(&state.db, p.root_id()).await?;
     authz::require(&state, &p, &root, Perm::List).await?;
-    let hits = nodes::search(&state.db, term, &root.id, q.limit.unwrap_or(100).clamp(1, 500)).await?;
+    let hits = nodes::search(
+        &state.db,
+        term,
+        &root.id,
+        q.limit.unwrap_or(100).clamp(1, 500),
+    )
+    .await?;
     let hits = authz::filter_visible(&state, &p, hits).await?;
     let mut out = Vec::with_capacity(hits.len());
     for h in &hits {
@@ -328,7 +429,17 @@ pub async fn upload(
         }
         _ => return Err(ApiError::bad_request("需要 name 或 path 參數")),
     };
-    do_upload(&state, &p, &dir, &segs, q.on_conflict, q.mtime, &headers, body).await
+    do_upload(
+        &state,
+        &p,
+        &dir,
+        &segs,
+        q.on_conflict,
+        q.mtime,
+        &headers,
+        body,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -348,7 +459,8 @@ pub(crate) async fn do_upload(
     let (dirs, name) = segs.split_at(segs.len() - 1);
     let name = &name[0];
     let max = state.cfg.max_upload_bytes;
-    let too_large = || ApiError::too_large("upload_too_large", format!("檔案超過上傳上限 {max} 位元組"));
+    let too_large =
+        || ApiError::too_large("upload_too_large", format!("檔案超過上傳上限 {max} 位元組"));
     if headers
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
@@ -371,8 +483,10 @@ pub(crate) async fn do_upload(
             }
         }
         if exists && nodes::child_by_name(&state.db, &cur, name).await?.is_some() {
-            return Err(ApiError::conflict(format!("「{name}」已存在；未覆寫既有檔案"))
-                .with_details(json!({ "name": name })));
+            return Err(
+                ApiError::conflict(format!("「{name}」已存在；未覆寫既有檔案"))
+                    .with_details(json!({ "name": name })),
+            );
         }
     }
 
@@ -382,14 +496,25 @@ pub(crate) async fn do_upload(
         Err(StoreError::TooLarge(_)) => return Err(too_large()),
         Err(StoreError::Io(e)) => {
             tracing::warn!(error = %e, "upload interrupted");
-            return Err(ApiError::new(StatusCode::BAD_REQUEST, "upload_incomplete", "上傳中斷，未儲存任何內容"));
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "upload_incomplete",
+                "上傳中斷，未儲存任何內容",
+            ));
         }
     };
-    if let Some(expected) = headers.get("x-content-sha256").and_then(|v| v.to_str().ok())
-        && !expected.trim().eq_ignore_ascii_case(&staged.sha256) {
-            return Err(ApiError::new(StatusCode::UNPROCESSABLE_ENTITY, "checksum_mismatch", "SHA-256 不符，檔案未儲存")
-                .with_details(json!({ "expected": expected.trim(), "actual": staged.sha256 })));
-        }
+    if let Some(expected) = headers
+        .get("x-content-sha256")
+        .and_then(|v| v.to_str().ok())
+        && !expected.trim().eq_ignore_ascii_case(&staged.sha256)
+    {
+        return Err(ApiError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "checksum_mismatch",
+            "SHA-256 不符，檔案未儲存",
+        )
+        .with_details(json!({ "expected": expected.trim(), "actual": staged.sha256 })));
+    }
     let (size, sha) = (staged.size, staged.sha256.clone());
     let parent = nodes::ensure_dirs(&state.db, dir, dirs).await?;
     let blob_id = state.store.commit(staged).await?;
@@ -412,7 +537,10 @@ pub(crate) async fn do_upload(
     match res {
         Ok(n) => {
             state.poke_rag();
-            Ok((StatusCode::CREATED, Json(view_with_path(state, p, &n).await?)))
+            Ok((
+                StatusCode::CREATED,
+                Json(view_with_path(state, p, &n).await?),
+            ))
         }
         Err(e) => {
             state.store.remove_blob(&blob_id).await;
@@ -439,12 +567,25 @@ pub async fn put_content(
     let expected = headers
         .get(header::IF_MATCH)
         .and_then(|v| v.to_str().ok())
-        .map(|v| v.trim().trim_start_matches("W/").trim_matches('"').to_ascii_lowercase())
+        .map(|v| {
+            v.trim()
+                .trim_start_matches("W/")
+                .trim_matches('"')
+                .to_ascii_lowercase()
+        })
         .ok_or_else(|| {
-            ApiError::new(StatusCode::PRECONDITION_REQUIRED, "precondition_required", "覆寫內容需要 If-Match 標頭（目前版本的 SHA-256）")
+            ApiError::new(
+                StatusCode::PRECONDITION_REQUIRED,
+                "precondition_required",
+                "覆寫內容需要 If-Match 標頭（目前版本的 SHA-256）",
+            )
         })?;
     let stale = || {
-        ApiError::new(StatusCode::PRECONDITION_FAILED, "version_conflict", "檔案已被其他地方修改，請重新載入後再儲存")
+        ApiError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "version_conflict",
+            "檔案已被其他地方修改，請重新載入後再儲存",
+        )
     };
     if n.sha256.as_deref() != Some(expected.as_str()) {
         return Err(stale());
@@ -453,8 +594,19 @@ pub async fn put_content(
     let reader = StreamReader::new(body.into_data_stream().map_err(std::io::Error::other));
     let staged = match state.store.stage(reader, max).await {
         Ok(s) => s,
-        Err(StoreError::TooLarge(_)) => return Err(ApiError::too_large("upload_too_large", format!("內容超過上限 {max} 位元組"))),
-        Err(StoreError::Io(_)) => return Err(ApiError::new(StatusCode::BAD_REQUEST, "upload_incomplete", "傳輸中斷，檔案未變更")),
+        Err(StoreError::TooLarge(_)) => {
+            return Err(ApiError::too_large(
+                "upload_too_large",
+                format!("內容超過上限 {max} 位元組"),
+            ));
+        }
+        Err(StoreError::Io(_)) => {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "upload_incomplete",
+                "傳輸中斷，檔案未變更",
+            ));
+        }
     };
     let (size, sha) = (staged.size, staged.sha256.clone());
     let blob = state.store.commit(staged).await?;

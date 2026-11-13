@@ -3,6 +3,7 @@
 // full-screen overlay.
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, contentUrl, type NodeInfo } from '../api';
+import { useCaps } from '../caps';
 import { ContextMenu, type MenuState } from '../components/ContextMenu';
 import { ErrorState } from '../components/ErrorState';
 import { FileIcon } from '../components/FileIcon';
@@ -40,7 +41,8 @@ export default function DriveLayout({
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [stats, setStats] = useState<{ files: number; bytes: number } | null>(null);
   const tree = useTree(m.version);
-  const rag = useRagStatus();
+  const caps = useCaps();
+  const rag = useRagStatus(caps.admin);
   const main = useRef<HTMLDivElement>(null);
 
   useEffect(() => localStorage.setItem('mistbox.driveView', view), [view]);
@@ -124,10 +126,10 @@ export default function DriveLayout({
         break;
       }
       case 'Delete':
-        m.actions.remove(selItems);
+        if (caps.write) m.actions.remove(selItems);
         break;
       case 'F2':
-        if (selItems.length === 1) m.actions.rename(selItems[0]);
+        if (caps.write && selItems.length === 1) m.actions.rename(selItems[0]);
         break;
       case 'a':
         if (!(e.ctrlKey || e.metaKey)) return;
@@ -146,6 +148,7 @@ export default function DriveLayout({
     e.preventDefault();
     e.stopPropagation();
     setDragOver(null);
+    if (!caps.write) return;
     const internal = e.dataTransfer.getData(DND_TYPE);
     if (internal) {
       const ids = selected.has(internal) ? [...selected] : [internal];
@@ -158,10 +161,10 @@ export default function DriveLayout({
     'data-i': i,
     tabIndex: i === cursor ? 0 : -1,
     'aria-selected': selected.has(n.id),
-    draggable: true,
+    draggable: caps.write,
     onDragStart: (e: React.DragEvent) => e.dataTransfer.setData(DND_TYPE, n.id),
     onDragOver: (e: React.DragEvent) => {
-      if (n.kind !== 'dir') return;
+      if (n.kind !== 'dir' || !caps.write) return;
       e.preventDefault();
       e.stopPropagation();
       setDragOver(n.id);
@@ -176,7 +179,7 @@ export default function DriveLayout({
       e.stopPropagation();
       if (!selected.has(n.id)) setSelected(new Set([n.id]));
       const sel = selected.has(n.id) ? selItems : [n];
-      setMenu({ x: e.clientX, y: e.clientY, items: nodeMenu(m, n, sel, () => open(n)) });
+      setMenu({ x: e.clientX, y: e.clientY, items: nodeMenu(m, n, sel, () => open(n), caps) });
     },
   });
 
@@ -186,22 +189,33 @@ export default function DriveLayout({
   return (
     <div className="drive" data-region="drive">
       <aside className={`drive-side ${sideOpen ? 'open' : ''}`} data-region="sidebar">
-        <button
-          className="new-btn"
-          onClick={(e) => {
-            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            setNewMenu({ x: r.left, y: r.bottom + 6, items: emptyMenu(m, m.dirId) });
-          }}
-        >
-          <Icon name="plus" size={20} /> 新增
-        </button>
-        <nav className="side-tree" aria-label="資料夾">
-          <SideNode m={m} tree={tree} node={{ id: 'root', name: '我的雲端' }} depth={0} onDrop={drop} dragOver={dragOver} setDragOver={setDragOver} onPick={() => setSideOpen(false)} />
-          <button className="side-row side-trash" onClick={() => (m.setDialog({ t: 'trash' }), setSideOpen(false))}>
-            <span className="twisty" />
-            <Icon name="trash" size={17} />
-            <span className="tree-name">垃圾桶</span>
+        {caps.write && (
+          <button
+            className="new-btn"
+            onClick={(e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setNewMenu({ x: r.left, y: r.bottom + 6, items: emptyMenu(m, m.dirId, [], caps) });
+            }}
+          >
+            <Icon name="plus" size={20} /> 新增
           </button>
+        )}
+        <nav className="side-tree" aria-label="資料夾">
+          <SideNode m={m} tree={tree} node={{ id: 'root', name: caps.rootName }} depth={0} onDrop={drop} dragOver={dragOver} setDragOver={setDragOver} onPick={() => setSideOpen(false)} />
+          {caps.admin && (
+            <>
+              <button className="side-row side-trash" onClick={() => (m.setDialog({ t: 'shares' }), setSideOpen(false))}>
+                <span className="twisty" />
+                <Icon name="link" size={17} />
+                <span className="tree-name">分享連結</span>
+              </button>
+              <button className="side-row side-trash" onClick={() => (m.setDialog({ t: 'trash' }), setSideOpen(false))}>
+                <span className="twisty" />
+                <Icon name="trash" size={17} />
+                <span className="tree-name">垃圾桶</span>
+              </button>
+            </>
+          )}
         </nav>
         <div className="side-foot">
           {stats && (
@@ -209,9 +223,11 @@ export default function DriveLayout({
               <Icon name="folder" size={14} /> {stats.files.toLocaleString()} 個檔案 · {formatSize(stats.bytes)}
             </div>
           )}
-          <button className="side-stat link" onClick={() => m.setDialog({ t: 'settings' })}>
-            <Icon name="sparkle" size={14} /> {ragLabel(rag)}
-          </button>
+          {caps.admin && (
+            <button className="side-stat link" onClick={() => m.setDialog({ t: 'settings' })}>
+              <Icon name="sparkle" size={14} /> {ragLabel(rag)}
+            </button>
+          )}
         </div>
       </aside>
       {sideOpen && <div className="scrim mobile-only" onClick={() => setSideOpen(false)} />}
@@ -222,17 +238,17 @@ export default function DriveLayout({
         onKeyDown={onKey}
         onDragOver={(e) => {
           e.preventDefault();
-          if (dragOver !== m.dirId) setDragOver(m.dirId);
+          if (caps.write && dragOver !== m.dirId) setDragOver(m.dirId);
         }}
         onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setDragOver(null)}
         onDrop={(e) => drop(e, m.dirId)}
         onContextMenu={(e) => {
           e.preventDefault();
-          setMenu({ x: e.clientX, y: e.clientY, items: emptyMenu(m, m.dirId) });
+          setMenu({ x: e.clientX, y: e.clientY, items: emptyMenu(m, m.dirId, [], caps) });
         }}
         onDoubleClick={(e) => {
           const t = e.target as HTMLElement;
-          if (!t.closest('.item, button, a, input, th')) m.actions.newFile(m.dirId);
+          if (caps.write && !t.closest('.item, button, a, input, th')) m.actions.newFile(m.dirId);
         }}
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest('.item')) setSelected(new Set());
@@ -245,7 +261,7 @@ export default function DriveLayout({
               <span key={b.id} className="crumb-wrap">
                 {i > 0 && <Icon name="chevron" size={16} className="crumb-sep" />}
                 {i === crumbs.length - 1 ? (
-                  <span className="crumb current" aria-current="page">{i === 0 ? '我的雲端' : b.name}</span>
+                  <span className="crumb current" aria-current="page">{i === 0 ? caps.rootName : b.name}</span>
                 ) : (
                   <button
                     className="crumb"
@@ -253,7 +269,7 @@ export default function DriveLayout({
                     onDragOver={(e) => (e.preventDefault(), e.stopPropagation())}
                     onDrop={(e) => drop(e, b.id)}
                   >
-                    {i === 0 ? '我的雲端' : b.name}
+                    {i === 0 ? caps.rootName : b.name}
                   </button>
                 )}
               </span>
@@ -268,17 +284,26 @@ export default function DriveLayout({
                     <Icon name="download" />
                   </button>
                 )}
-                {selItems.length === 1 && (
-                  <button className="btn ghost icon-only" onClick={() => m.actions.rename(selItems[0])} title="重新命名" aria-label="重新命名">
-                    <Icon name="edit" />
+                {caps.admin && selItems.length === 1 && (
+                  <button className="btn ghost icon-only" onClick={() => m.setDialog({ t: 'share', item: selItems[0] })} title="分享連結" aria-label="分享連結">
+                    <Icon name="link" />
                   </button>
                 )}
-                <button className="btn ghost icon-only" onClick={() => m.actions.move(selItems)} title="移動" aria-label="移動">
-                  <Icon name="move" />
-                </button>
-                <button className="btn ghost icon-only danger-ghost" onClick={() => m.actions.remove(selItems)} title="刪除" aria-label="刪除">
-                  <Icon name="trash" />
-                </button>
+                {caps.write && (
+                  <>
+                    {selItems.length === 1 && (
+                      <button className="btn ghost icon-only" onClick={() => m.actions.rename(selItems[0])} title="重新命名" aria-label="重新命名">
+                        <Icon name="edit" />
+                      </button>
+                    )}
+                    <button className="btn ghost icon-only" onClick={() => m.actions.move(selItems)} title="移動" aria-label="移動">
+                      <Icon name="move" />
+                    </button>
+                    <button className="btn ghost icon-only danger-ghost" onClick={() => m.actions.remove(selItems)} title="刪除" aria-label="刪除">
+                      <Icon name="trash" />
+                    </button>
+                  </>
+                )}
                 <button className="btn ghost icon-only" onClick={() => setSelected(new Set())} title="取消選取" aria-label="取消選取">
                   <Icon name="close" />
                 </button>
@@ -323,7 +348,7 @@ export default function DriveLayout({
             <div className="state empty">
               <FileIcon name="" kind="dir" size={72} />
               <p>這個資料夾是空的</p>
-              <p className="muted">把檔案或資料夾拖放到這裡上傳、按右鍵新增，或雙擊空白處建立檔案。</p>
+              {caps.write && <p className="muted">把檔案或資料夾拖放到這裡上傳、按右鍵新增，或雙擊空白處建立檔案。</p>}
             </div>
           ) : view === 'grid' ? (
             <>
@@ -410,7 +435,8 @@ export default function DriveLayout({
         <Overlay
           m={m}
           files={files}
-          onIde={() => setLayout('ide')}
+          onIde={caps.admin ? () => setLayout('ide') : undefined}
+          admin={caps.admin}
           tab={activeTab}
         />
       )}
@@ -480,7 +506,19 @@ function SideNode({
 }
 
 /** Full-screen preview with ←/→ to step through files in the folder. */
-function Overlay({ m, files, tab, onIde }: { m: DriveModel; files: NodeInfo[]; tab: import('../state/useDrive').Tab; onIde: () => void }) {
+function Overlay({
+  m,
+  files,
+  tab,
+  onIde,
+  admin,
+}: {
+  m: DriveModel;
+  files: NodeInfo[];
+  tab: import('../state/useDrive').Tab;
+  onIde?: () => void;
+  admin: boolean;
+}) {
   const hooks = useTabHooks(m, tab, false);
   const n = tab.node;
   const idx = files.findIndex((f) => f.id === n.id);
@@ -521,14 +559,21 @@ function Overlay({ m, files, tab, onIde }: { m: DriveModel; files: NodeInfo[]; t
           </span>
         </div>
         <span className="spacer" />
-        {previewKind(n.name) === 'image' && (
+        {admin && previewKind(n.name) === 'image' && (
           <button className="btn ghost" onClick={() => setAsBackground(m, n)} title="設為背景圖片">
             <Icon name="image" /> <span className="hide-sm">設為背景</span>
           </button>
         )}
-        <button className="btn ghost" onClick={onIde} title="以 IDE 版面開啟">
-          <Icon name="code" /> <span className="hide-sm">在 IDE 開啟</span>
-        </button>
+        {admin && (
+          <button className="btn ghost" onClick={() => m.setDialog({ t: 'share', item: n })} title="分享連結">
+            <Icon name="link" /> <span className="hide-sm">分享</span>
+          </button>
+        )}
+        {onIde && (
+          <button className="btn ghost" onClick={onIde} title="以 IDE 版面開啟">
+            <Icon name="code" /> <span className="hide-sm">在 IDE 開啟</span>
+          </button>
+        )}
         <a className="btn ghost" href={contentUrl(n.id)} download title="下載">
           <Icon name="download" /> <span className="hide-sm">下載</span>
         </a>

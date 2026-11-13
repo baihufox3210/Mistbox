@@ -10,6 +10,8 @@ import KeysPage from './KeysPage';
 import { DeleteDialog, Modal, MoveDialog, PasswordDialog, PromptDialog } from './Modal';
 import SettingsDialog from './SettingsDialog';
 import TrashDialog from './TrashDialog';
+import SharesDialog from './SharesDialog';
+import { useCaps } from '../caps';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl';
@@ -99,6 +101,7 @@ export function useCommands(
   opts: { target: () => string; layout: Layout; setLayout: (l: Layout) => void; onLogout: () => void; extra?: Command[] },
 ): Command[] {
   const { target, layout, setLayout, onLogout, extra } = opts;
+  const caps = useCaps();
   return useMemo(() => {
     const activeNode = m.tabs.find((t) => t.node.id === m.active)?.node;
     const c: Command[] = [
@@ -121,6 +124,7 @@ export function useCommands(
       { id: 'go-root', label: '回到根目錄', icon: 'folder', keywords: 'home root', run: () => m.navigate('root') },
       { id: 'close-all', label: '關閉所有分頁', icon: 'close', keywords: 'close tabs', run: () => m.closeAll() },
       { id: 'keys', label: '管理 API Keys', icon: 'key', keywords: 'api token', run: () => m.setDialog({ t: 'keys' }) },
+      { id: 'shares', label: '管理分享連結', icon: 'link', keywords: 'share link 分享 連結', run: () => m.setDialog({ t: 'shares' }) },
       { id: 'password', label: '變更密碼', icon: 'lock', keywords: 'password', run: () => m.setDialog({ t: 'password' }) },
       { id: 'logout', label: '登出', icon: 'logout', keywords: 'logout sign out', run: onLogout },
     ];
@@ -129,10 +133,15 @@ export function useCommands(
         { id: 'download-active', label: `下載目前檔案：${activeNode.name}`, icon: 'download', keywords: 'download', run: () => m.actions.download(activeNode) },
         { id: 'copy-path', label: `複製路徑：${activeNode.name}`, icon: 'copy', keywords: 'copy path', run: () => m.actions.copyPath(activeNode) },
         { id: 'rename-active', label: `重新命名：${activeNode.name}`, icon: 'edit', keywords: 'rename', run: () => m.actions.rename(activeNode) },
+        { id: 'share-active', label: `分享連結：${activeNode.name}`, icon: 'link', keywords: 'share link 分享', run: () => m.setDialog({ t: 'share', item: activeNode }) },
       );
     }
-    return [...(extra ?? []), ...c.filter((x) => !(x.id === `layout-${layout}`))];
-  }, [m, target, layout, setLayout, onLogout, extra]);
+    // Share-link viewers: no admin features; read-only links cannot change anything.
+    const adminOnly = new Set(['semantic', 'layout-drive', 'layout-ide', 'settings', 'reload-css', 'trash', 'keys', 'shares', 'share-active', 'password', 'logout']);
+    const writeOnly = new Set(['new-file', 'new-folder', 'upload', 'upload-folder', 'save', 'rename-active']);
+    const allowed = (x: Command) => (caps.admin || !adminOnly.has(x.id)) && (caps.write || !writeOnly.has(x.id));
+    return [...(extra ?? []), ...c.filter((x) => x.id !== `layout-${layout}` && allowed(x))];
+  }, [m, target, layout, setLayout, onLogout, extra, caps]);
 }
 
 /** Global shortcuts, palette, dialogs, hidden inputs and toast. */
@@ -147,6 +156,7 @@ export function ShellOverlays({
   layout: Layout;
   setLayout: (l: Layout) => void;
 }) {
+  const caps = useCaps();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
@@ -159,7 +169,7 @@ export function ShellOverlays({
         m.setPaletteMode('files');
       } else if (mod && e.shiftKey && k === 'f') {
         e.preventDefault();
-        m.setPaletteMode('semantic');
+        if (caps.admin) m.setPaletteMode('semantic');
       } else if (mod && k === 's') {
         e.preventDefault();
         m.saveActive();
@@ -167,7 +177,7 @@ export function ShellOverlays({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [m]);
+  }, [m, caps.admin]);
 
   // Warn before leaving with unsaved edits.
   const dirty = m.tabs.some((t) => t.dirty);
@@ -270,6 +280,8 @@ export function ShellOverlays({
       {d?.t === 'trash' && <TrashDialog onClose={close} onChanged={(msg) => (m.bump(), msg && m.toast(msg))} />}
       {d?.t === 'move' && <MoveDialog items={d.items} onClose={close} onDone={m.bump} />}
       {d?.t === 'keys' && <KeysPage onClose={close} />}
+      {d?.t === 'share' && <SharesDialog node={d.item} onClose={close} toast={m.toast} />}
+      {d?.t === 'shares' && <SharesDialog onClose={close} toast={m.toast} />}
       {d?.t === 'password' && <PasswordDialog onClose={close} />}
       {d?.t === 'settings' && <SettingsDialog onClose={close} layout={layout} setLayout={setLayout} />}
       {d?.t === 'confirm-close' && confirmTab && (

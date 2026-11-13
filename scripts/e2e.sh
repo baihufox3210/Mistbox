@@ -223,6 +223,22 @@ check "撤銷後立即失效 (401)" bash -c "[[ \$(status -H 'Authorization: Bea
 code=$(spost -o /dev/null -w '%{http_code}' -H 'content-type: application/json' -d '{"name":"old","permissions":{"read":true},"expires_at":"2001-01-01T00:00:00Z"}' "$BASE/api/v1/keys")
 check "不可建立已過期的 Key (400)" test "$code" == 400
 
+section "分享連結"
+sres=$(spost -H 'content-type: application/json' -d "{\"node_id\":\"$scope\",\"permission\":\"view\",\"expires_at\":null}" "$BASE/api/v1/shares")
+slink=$(jq -r .link <<<"$sres"); sid=$(jq -r .share.id <<<"$sres"); ssec=${slink#*#}
+STOK="mbs_${sid}_${ssec}"
+check "連結格式 /s/<id>#<密鑰>（密鑰在 fragment）" bash -c "[[ '$slink' =~ ^/s/[0-9a-f]{16}#[0-9a-f]{64}$ ]]"
+check "分享頁面可載入（SPA）" bash -c "curl -sS '$BASE/s/$sid' | grep -q '<div id=\"root\">'"
+check "持有連結可列出分享的資料夾" bash -c "curl -sS -H 'X-Share-Token: $STOK' '$BASE/api/v1/nodes/root/children' | jq -e '.node.name==\"code\" and (.children|map(.name)|index(\"hello.c\"))' >/dev/null"
+check "分享範圍外 → 404" bash -c "[[ \$(status -H 'X-Share-Token: $STOK' '$BASE/api/v1/nodes/$other/content') == 404 ]]"
+check "檢視權限不能上傳 (403)" bash -c "[[ \$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Share-Token: $STOK' --data-binary x '$BASE/api/v1/fs/upload?path=/x.txt') == 403 ]]"
+check "分享連結不能使用管理功能 (403)" bash -c "[[ \$(status -H 'X-Share-Token: $STOK' '$BASE/api/v1/shares') == 403 ]]"
+spost -o /dev/null -X PATCH -H 'content-type: application/json' -d '{"permission":"edit"}' "$BASE/api/v1/shares/$sid"
+check "改為可編輯後可上傳 (201)" bash -c "[[ \$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Share-Token: $STOK' --data-binary x '$BASE/api/v1/fs/upload?path=/from-share.txt') == 201 ]]"
+check "日誌不含分享密鑰" bash -c "! $DC logs app 2>&1 | grep -q '$ssec'"
+spost -o /dev/null -X DELETE "$BASE/api/v1/shares/$sid"
+check "刪除後連結立即失效 (404)" bash -c "[[ \$(status -H 'X-Share-Token: $STOK' '$BASE/api/v1/nodes/root/children') == 404 ]]"
+
 section "主題、背景、內容覆寫"
 h=$(curl -sS -D - -o "$WORK/custom.css" "$BASE/theme/custom.css")
 check "/theme/custom.css 可取得" grep -q '^HTTP/1.1 200' <<<"$h"
