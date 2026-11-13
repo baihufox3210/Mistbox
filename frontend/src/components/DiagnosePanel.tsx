@@ -2,7 +2,7 @@
 // The right pane shows matching code, fixes and related
 // Markdown notes. Nothing is stored: the last result lives in memory only.
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { api, errorText, type DiagLocation, type DiagnoseReport, type LocationReason, type NodeInfo } from '../api';
+import { api, errorText, type DiagnoseFix, type DiagLocation, type DiagnoseReport, type LocationReason, type NodeInfo } from '../api';
 import { SEVERITY_LABEL, useCodeRules } from '../state/codeFindings';
 import type { DriveModel } from '../state/useDrive';
 import { Icon } from './Icon';
@@ -34,7 +34,7 @@ const LANGS: [string, string][] = [
 ];
 
 /** Last input and result (memory only, cleared on reload). */
-const memory: { text: string; mode: Mode; lang: string; report: DiagnoseReport | null; analyzed?: string; view?: string } = { text: '', mode: 'auto', lang: 'auto', report: null };
+const memory: { text: string; mode: Mode; lang: string; report: DiagnoseReport | null; analyzed?: string; view?: string; undo?: { before: string; after: string } | null } = { text: '', mode: 'auto', lang: 'auto', report: null };
 
 async function openAt(m: DriveModel, id: string, line: number) {
   try {
@@ -55,6 +55,8 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
   const [line, setLine] = useState<number>();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [preview, setPreview] = useState<{ fix: DiagnoseFix; signature: string } | null>(null);
+  const [undo, setUndo] = useState<{ before: string; after: string } | null>(memory.undo ?? null);
   const request = useRef(0);
   const rules = useCodeRules();
   const signature = JSON.stringify([text, mode, lang]);
@@ -64,8 +66,8 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
   const effectiveLang = lang !== 'auto' ? lang : !stale && report?.kind === 'code' ? report.lang ?? 'text' : 'text';
 
   useEffect(() => {
-    Object.assign(memory, { text, mode, lang, report, analyzed, view });
-  }, [text, mode, lang, report, analyzed, view]);
+    Object.assign(memory, { text, mode, lang, report, analyzed, view, undo });
+  }, [text, mode, lang, report, analyzed, view, undo]);
   useEffect(() => () => { request.current++; }, []);
 
   const run = async () => {
@@ -95,10 +97,21 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
     setAnalyzed(undefined);
     setErr('');
     setLine(undefined);
+    setPreview(null);
+    setUndo(null);
   };
   const inputLine = (n: number) => {
     const numbered = text.split('\n').findIndex((l) => Number(l.match(/^\s*(\d+)\s*[|│:]\s?/)?.[1]) === n);
     return numbered >= 0 ? numbered + 1 : n - (report?.first_line ?? 1) + 1;
+  };
+  const activePreview = !stale && preview?.signature === signature ? preview.fix : null;
+  const applyFix = () => {
+    if (!activePreview || !report || busy) return;
+    setUndo({ before: text, after: activePreview.replacement });
+    setText(activePreview.replacement);
+    setPreview(null);
+    setView('split');
+    setErr('');
   };
   const findings = report && !stale ? report.findings.filter((f) => !f.file) : [];
   const jump = (n: number) => {
@@ -136,6 +149,9 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
             ))}
           </select>
           <span className="spacer" />
+          {undo && <button className="btn ghost sm" disabled={text !== undo.after || busy} onClick={() => {
+            setText(undo.before); setUndo(null); setPreview(null);
+          }}>復原修正</button>}
           {(text || report) && (
             <button className="btn ghost sm" onClick={clear}>
               清除
@@ -162,6 +178,26 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
       {report ? (
         <div className="diag-results">
           <section className="diag-col" aria-label="對應的程式碼">
+            {!stale && (report.fixes?.length ?? 0) > 0 && <section className="diag-fixes" aria-label="可自動修正的問題">
+              <h3 className="diag-title">可自動修正</h3>
+              <p className="muted small">預覽後套用至左側輸入；不會修改雲端檔案。套用後請重新分析。</p>
+              {report.fixes!.map((fix, i) => <article className="sol-card" key={i}>
+                <strong>{fix.title}</strong>
+                <span className="muted small">第 {fix.line} 行 · {fix.rule}</span>
+                <button className="btn sm" disabled={busy} onClick={() => setPreview({ fix, signature })}>預覽修正</button>
+              </article>)}
+            </section>}
+            {activePreview && <section className="fix-preview sol-card" aria-label="修正預覽">
+              <h3>{activePreview.title}</h3>
+              {text !== report.formatted && <p className="muted small">套用時也會移除貼上內容的行號、終端機色碼及共同縮排。</p>}
+              <strong>修改前（整理後）</strong><pre>{report.formatted}</pre>
+              <strong>修改後</strong><pre>{activePreview.replacement}</pre>
+              <div className="fix-actions">
+                <button className="btn primary sm" disabled={busy} onClick={applyFix}>套用修正</button>
+                <button className="btn ghost sm" onClick={() => setPreview(null)}>取消</button>
+              </div>
+            </section>}
+            {!stale && !report.fixes?.length && report.kind === 'code' && <p className="diag-hint muted small">此段程式碼沒有可自動套用的修正；需要判斷設計意圖的問題會保留修正建議。</p>}
             {!stale && report.frames.length > 0 && <>
               <h3 className="diag-title">錯誤位置</h3>
               <ul className="finding-list">{report.frames.map((f, i) => <li key={i}>
@@ -182,9 +218,14 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
             </>}
             <h3 className="diag-title">對應的程式碼 <span className="muted small">{report.locations.length} 處</span></h3>
             {report.locations.length === 0 && <p className="diag-hint muted small">雲端裡沒有找到對應的程式碼。</p>}
-            {report.locations.map((l, i) => (
+            {report.locations.filter((l) => l.reason !== 'similar').map((l, i) => (
               <LocationCard key={i} l={l} onOpen={() => openAt(m, l.node_id, l.line)} />
             ))}
+            {report.locations.some((l) => l.reason === 'similar') && <details className="diag-similar">
+              <summary>相似實作參考（{report.locations.filter((l) => l.reason === 'similar').length} 個檔案）</summary>
+              <p className="muted small">依語意相似度排序，僅供參考；不是錯誤位置或已驗證的修法。</p>
+              {report.locations.filter((l) => l.reason === 'similar').map((l, i) => <LocationCard key={i} l={l} onOpen={() => openAt(m, l.node_id, l.line)} />)}
+            </details>}
             {report.findings.some((f) => f.file) && (
               <>
                 <h3 className="diag-title">附近的分析結果</h3>
@@ -248,7 +289,7 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
                   {n.heading && <span className="muted">› {n.heading}</span>}
                 </header>
                 <div className="note-matched">
-                  {n.matched.slice(0, 6).map((x) => (
+                  {[...new Set(n.matched)].slice(0, 6).map((x) => (
                     <span key={x} className="chip">{x}</span>
                   ))}
                 </div>

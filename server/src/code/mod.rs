@@ -16,9 +16,11 @@
 pub mod clones;
 pub mod diagnose;
 pub mod embed;
+pub mod fixes;
 pub mod index;
 pub mod knowledge;
 pub mod notes;
+pub mod parallel;
 pub mod pio;
 pub mod resolve;
 pub mod rules;
@@ -27,7 +29,7 @@ pub mod syntax;
 use serde::Serialize;
 
 /// Bump to re-analyse every file after changing rules or the fingerprinting.
-pub const ENGINE: i64 = 3;
+pub const ENGINE: i64 = 4;
 /// Larger files are not analysed.
 pub const MAX_FILE_BYTES: i64 = 1024 * 1024;
 
@@ -197,24 +199,36 @@ rules! {
         "`client.call()` 在 callback 中會死結（回應需要同一個 executor 處理）。改用 `call_async` 加 `add_done_callback`，或使用不同的 callback group 與 `MultiThreadedExecutor`。";
     // ---- parallel computing
     "omp-race", Error, "parallel", "OpenMP 平行迴圈中更新共享變數（資料競爭）",
-        "多個執行緒同時 `+=` 同一個共享變數會遺失更新。請加 `reduction(+:var)`；非歸約運算用 `#pragma omp atomic`，或讓每個執行緒用區域變數最後再合併。";
+        "原因：多個執行緒未受保護地更新共享變數，可能遺失更新。建議：可歸約的累加使用 reduction；單次原子更新可用 omp atomic，複合操作須共同鎖定。驗證：確認所有存取使用一致同步方式，並與序列版結果比較。";
     "omp-false-sharing", Perf, "parallel", "以執行緒編號索引共享陣列（偽共享）",
-        "`a[omp_get_thread_num()] += ...` 讓不同執行緒寫同一條 cache line，效能會大幅下降。在迴圈內累加到區域變數最後寫一次，或把每個元素補齊到 64 位元組（`alignas(64)`）。";
+        "原因：不同執行緒更新相鄰元素時可能共用快取行，產生額外同步成本。建議：先用執行緒區域變數累加再寫回，或依硬體快取行大小調整間距。驗證：量測吞吐量及快取事件；已有填補或寫入很少時不一定值得修改。";
     "omp-critical-in-loop", Perf, "parallel", "平行迴圈內使用 critical",
-        "每次迭代都進 `critical` 等於序列化。累加請用 `reduction`，單一變數更新用 `atomic`。";
-    "cuda-syncthreads-divergent", Error, "parallel", "條件分支中的 __syncthreads()",
-        "若同一個 block 的執行緒走不同分支，`__syncthreads()` 會死結或行為未定義。把同步移到分支外，讓所有執行緒都會執行到。";
+        "原因：每輪進入 critical 可能讓更新區段序列化。建議：累加可評估 reduction，單一變數可評估 atomic；有多個不變條件的操作仍需保留鎖。驗證：比較競爭時間與結果，不能為了效能直接移除同步。";
+    "cuda-syncthreads-divergent", Warning, "parallel", "條件分支中的 __syncthreads()",
+        "原因：同步位於依執行緒而異的條件中，部分執行緒可能無法到達同一個 barrier。建議：確認整個 block 的到達條件；必要時重構為所有相關執行緒都會執行的同步。驗證：使用 compute-sanitizer --tool synccheck；僅有條件分支不代表一定死結。";
     "cuda-memcpy-in-loop", Perf, "parallel", "迴圈中反覆 cudaMemcpy",
-        "每次 `cudaMemcpy` 都會同步並有固定開銷。請合併成一次大批傳輸，或用 `cudaMemcpyAsync` 搭配 stream 與 pinned memory 讓傳輸和運算重疊。";
+        "原因：同步式傳輸可能造成等待，小批次傳輸也有固定成本。建議：合併傳輸，或評估 cudaMemcpyAsync、stream 與 pinned host memory。驗證：確認資料依賴、主機緩衝區生命週期及硬體是否支援重疊。";
     "volatile-as-sync", Warning, "parallel", "以 volatile 做執行緒同步",
-        "`volatile` 不提供原子性也不保證記憶體順序。執行緒間的旗標請用 `atomic_bool` / `std::atomic<bool>`。";
+        "原因：volatile 不提供跨執行緒原子性或同步順序。建議：旗標使用 std::atomic／C atomic，多欄位狀態使用 mutex；硬體暫存器用途仍可保留 volatile。驗證：檢查所有共享存取與記憶體順序，不要只替換型別。";
     "mp-main-guard", Error, "parallel", "multiprocessing 缺少 __main__ 保護",
-        "在模組頂層建立 `Pool` / `Process`，用 spawn 啟動方式（Windows、macOS 預設）時子行程重新 import 模組會無限遞迴。請放進 `if __name__ == \"__main__\":`。";
+        "原因：使用 spawn 或 forkserver 時，載入主模組可能再次建立子行程。建議：將工作池啟動放進 if __name__ == \"__main__\":，工作函式放在可匯入的模組頂層。驗證：以實際啟動方式測試，確認 import 不會自動啟動子行程。";
+    "cuda-allocation-in-loop", Perf, "parallel", "迴圈中反覆配置 GPU 記憶體",
+        "原因：配置與釋放有固定成本。建議：尺寸穩定時在迴圈外配置並重用；確有動態需求時評估記憶體池。驗證：量測配置時間與尖峰記憶體，勿提前釋放仍在使用的緩衝區。";
+    "cuda-device-sync-in-loop", Perf, "parallel", "迴圈中等待整張 GPU",
+        "原因：裝置層級同步可能阻止工作重疊。建議：依資料依賴改用 stream／event 同步；需要 CPU 讀取結果時保留必要等待。驗證：比較時間軸及結果，不能直接刪除同步。";
+    "omp-team-in-loop", Perf, "parallel", "迴圈中反覆進入 OpenMP 平行區域",
+        "原因：反覆進入 parallel 區域可能增加管理成本。建議：評估將 parallel 移到外層、內層使用 omp for；先確認共享變數與 barrier 需求。驗證：比較不同執行緒數下的時間，工作量很小時序列版可能更快。";
+    "python-pool-in-loop", Perf, "parallel", "迴圈中重建工作池",
+        "原因：反覆啟動工作池有額外成本。建議：將工作池放到迴圈外並用 with 管理生命週期。驗證：確認工作已完成再關閉工作池，比較總耗時與記憶體。";
+    "python-submit-wait-in-loop", Perf, "parallel", "提交工作後立即等待結果",
+        "原因：每輪只提交一個工作就等待，難以利用多個 worker。建議：以有界批次提交，再收集結果；不要求順序時可用 as_completed。驗證：保留例外處理與背壓，避免一次提交過多工作。";
+    "python-blocking-sleep-async", Warning, "parallel", "async 函式中使用阻塞 sleep",
+        "原因：time.sleep 會阻塞事件迴圈執行緒。建議：需要非同步延遲時改用 await asyncio.sleep；若本來就在其他執行緒執行，請先確認是否需要調整。驗證：觀察其他協程能否持續執行。";
     // ---- general performance
     "strlen-in-loop", Perf, "perf", "迴圈條件中呼叫 strlen",
         "每次迭代都重新計算長度，使迴圈變成 O(n²)。先把長度存進變數，或改用 `s[i] != '\\0'` 作為條件。";
     "pow-integer", Perf, "perf", "用 pow 計算整數次方",
-        "`pow` 走浮點運算。2 的次方用 `1u << n`，平方用 `x * x`。";
+        "原因：pow 是浮點運算。建議：平方可評估 x * x；只有整數結果且位移量在型別範圍內時，才使用 1u << n。驗證：檢查負指數、溢位及浮點精度，不能一律用位移取代。";
     // ---- PIO assembly
     "pio-too-long", Error, "pio", "PIO 程式超過 32 條指令",
         "每個 PIO 區塊只有 32 個指令槽，由所有狀態機共用。請精簡程式（善用 side-set、autopull／autopush 與 `.wrap`），或分到另一個 PIO 區塊。";

@@ -19,7 +19,7 @@ const EXCERPT_BEFORE: u32 = 4;
 const EXCERPT_AFTER: u32 = 4;
 const MAX_LOCATIONS: usize = 24;
 const MAX_NOTES: usize = 8;
-const SIMILAR_MIN: f32 = 0.35;
+const SIMILAR_MIN: f32 = 0.55;
 
 #[derive(Serialize, Debug, Clone)]
 pub struct Line {
@@ -71,6 +71,7 @@ pub struct Report {
     pub findings: Vec<Finding>,
     pub solutions: Vec<Solution>,
     pub notes: Vec<Note>,
+    pub fixes: Vec<super::fixes::Fix>,
 }
 
 pub struct Ctx<'a> {
@@ -203,12 +204,18 @@ impl Out<'_> {
         score: f32,
     ) -> anyhow::Result<()> {
         if let Some(l) = self.locs.iter_mut().find(|l| {
-            l.node_id == node_id && l.line_start <= line && line <= l.line_end.max(l.line_start)
+            l.node_id == node_id
+                && l.line_start <= end.max(start)
+                && start <= l.line_end.max(l.line_start)
         }) {
             if score > l.score {
                 l.score = score;
                 l.reason = reason;
                 l.label = label;
+                l.line = line;
+                l.line_start = start;
+                l.line_end = end;
+                l.excerpt = self.files.excerpt(node_id, start, end).await?;
             }
             return Ok(());
         }
@@ -521,7 +528,7 @@ pub async fn resolve(ctx: &Ctx<'_>, parsed: Parsed) -> anyhow::Result<Report> {
             continue;
         }
         note_terms.push((r.to_string(), 3.0));
-        if solutions.iter().any(|s| s.source == "rule" && s.id == r) {
+        if solutions.iter().any(|s| s.rule == Some(r)) {
             continue;
         }
         if let Some(rule) = rule(r) {
@@ -529,7 +536,16 @@ pub async fn resolve(ctx: &Ctx<'_>, parsed: Parsed) -> anyhow::Result<Report> {
                 source: "rule",
                 id: rule.id.into(),
                 title: rule.title.into(),
-                steps: vec![rule.hint.into()],
+                steps: if rule.hint.starts_with("原因：") {
+                    rule.hint
+                        .replace("建議：", "\n建議：")
+                        .replace("驗證：", "\n驗證：")
+                        .lines()
+                        .map(str::to_string)
+                        .collect()
+                } else {
+                    vec![rule.hint.into()]
+                },
                 rule: Some(rule.id),
             });
         }
@@ -542,10 +558,25 @@ pub async fn resolve(ctx: &Ctx<'_>, parsed: Parsed) -> anyhow::Result<Report> {
         .collect();
     let notes = notes(ctx, &note_terms, &known_ids, &parsed.formatted).await?;
     let mut locations = out.locs;
-    locations.sort_by(|a, b| b.score.total_cmp(&a.score));
+    locations.sort_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then_with(|| a.node_id.cmp(&b.node_id))
+            .then(a.line.cmp(&b.line))
+    });
     locations.truncate(MAX_LOCATIONS);
     findings.sort_by_key(|f| (sev_rank(&f.severity), f.node_id.clone(), f.line));
+    let fixes = if parsed.kind == Kind::Code {
+        super::fixes::suggest(
+            parsed.lang.and_then(Lang::parse).unwrap_or(Lang::Generic),
+            &parsed.formatted,
+            parsed.first_line,
+        )
+    } else {
+        vec![]
+    };
     Ok(Report {
+        fixes,
         parsed,
         locations,
         findings,
@@ -561,6 +592,31 @@ fn sev_rank(s: &str) -> u8 {
         "perf" => 2,
         _ => 3,
     }
+}
+
+fn select_similar(
+    mut hits: Vec<super::embed::Hit>,
+    direct: &[Location],
+    limit: usize,
+) -> Vec<super::embed::Hit> {
+    hits.retain(|h| {
+        h.score.is_finite()
+            && h.score >= SIMILAR_MIN
+            && !direct.iter().any(|l| {
+                l.node_id == h.node_id && matches!(l.reason, "clone" | "text" | "stack" | "symbol")
+            })
+    });
+    hits.sort_by(|a, b| {
+        b.score
+            .total_cmp(&a.score)
+            .then_with(|| a.node_id.cmp(&b.node_id))
+            .then(a.line_start.cmp(&b.line_start))
+    });
+    let mut seen = HashSet::new();
+    hits.into_iter()
+        .filter(|h| seen.insert(h.node_id.clone()))
+        .take(limit)
+        .collect()
 }
 
 async fn similar(
@@ -580,17 +636,20 @@ async fn similar(
         .await?;
         rows.into_iter().collect()
     };
-    let hits = match sem.search(query, k * 2, &|id| ids.contains(id)).await {
+    let hits = match sem.search(query, k * 6, &|id| ids.contains(id)).await {
         Ok(h) => h,
         Err(e) => {
             tracing::warn!(error = %e, "similar-code search failed");
             return Ok(());
         }
     };
-    for h in hits.into_iter().filter(|h| h.score >= SIMILAR_MIN).take(k) {
+    for h in select_similar(hits, &out.locs, k) {
         let label = match &h.symbol {
-            Some(s) => format!("意思相近的程式碼：`{s}`（相似度 {:.2}）", h.score),
-            None => format!("意思相近的程式碼（相似度 {:.2}）", h.score),
+            Some(s) => format!(
+                "可參考的相似實作：`{s}`（相似度 {:.2}，不代表功能相同）",
+                h.score
+            ),
+            None => format!("可參考的相似實作（相似度 {:.2}，不代表功能相同）", h.score),
         };
         out.add(
             &h.node_id,
@@ -785,6 +844,50 @@ pub fn section(body: &str, line: u32) -> (Option<String>, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn semantic_hits_keep_best_per_file_and_exclude_direct_matches() {
+        let hit = |id: &str, line, score| super::super::embed::Hit {
+            node_id: id.into(),
+            line_start: line,
+            line_end: line + 10,
+            symbol: None,
+            score,
+        };
+        let direct = Location {
+            node_id: "exact".into(),
+            line: 1,
+            line_start: 1,
+            line_end: 10,
+            reason: "clone",
+            label: String::new(),
+            score: 4.0,
+            excerpt: vec![],
+        };
+        let selected = select_similar(
+            vec![
+                hit("a", 30, 0.7),
+                hit("a", 1, 0.9),
+                hit("b", 5, 0.8),
+                hit("exact", 100, 0.99),
+                hit("weak", 1, 0.4),
+                hit("nan", 1, f32::NAN),
+            ],
+            &[direct],
+            5,
+        );
+        assert_eq!(
+            selected
+                .iter()
+                .map(|h| (h.node_id.as_str(), h.line_start))
+                .collect::<Vec<_>>(),
+            [("a", 1), ("b", 5)]
+        );
+        assert_eq!(
+            select_similar(vec![hit("a", 1, 0.9), hit("b", 1, 0.8)], &[], 1).len(),
+            1
+        );
+    }
 
     #[test]
     fn path_suffixes_and_sections() {

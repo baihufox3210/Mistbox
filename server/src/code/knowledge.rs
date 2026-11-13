@@ -541,7 +541,7 @@ const KNOWN: &[Known] = &[
     // ---- parallel computing
     Known {
         id: "thread-create",
-        re: r"(?i)pthread_create failed|resource temporarily unavailable|libgomp: Thread creation failed|std::system_error.*Resource",
+        re: r"(?i)pthread_create.*(?:failed|resource temporarily unavailable)|libgomp: Thread creation failed|std::system_error.*Resource temporarily unavailable",
         title: "無法建立執行緒",
         steps: &[
             "執行緒數量超過系統或容器限制（`ulimit -u`、cgroup 的 pids 限制），或每個執行緒的堆疊太大。",
@@ -588,8 +588,152 @@ const KNOWN: &[Known] = &[
         re: r"(?i)can't pickle|cannot pickle|PicklingError|AttributeError: Can't get attribute",
         title: "multiprocessing 無法序列化",
         steps: &[
-            "傳給 `Pool` / `Process` 的函式必須是模組頂層定義的函式，不能是 lambda、巢狀函式或綁定方法裡的區域物件。",
+            "傳給 Pool／Process 的工作函式應可由子行程匯入，優先使用模組頂層函式；lambda、巢狀函式及不可序列化的物件狀態常會失敗。",
             "檔案、socket、鎖等物件無法傳遞，改在子行程中自行建立。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "tsan-data-race",
+        re: r#"(?i)ThreadSanitizer: data race"#,
+        title: "執行緒同時讀寫共享資料",
+        steps: &[
+            "原因：ThreadSanitizer 偵測到未受同步保護的並行存取。",
+            "修正：比對報告的兩個存取堆疊；以同一把鎖保護共享資料，或依需求使用 atomic／OpenMP reduction。",
+            "驗證：用 -fsanitize=thread -g 重跑相同負載；不要只把變數改成 volatile。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "tsan-unlock",
+        re: r#"(?i)ThreadSanitizer: unlock of an unlocked mutex|ThreadSanitizer: double lock"#,
+        title: "mutex 的上鎖與解鎖不成對",
+        steps: &[
+            "原因：mutex 被重複上鎖、未上鎖就解鎖，或由錯誤的執行緒解鎖。",
+            "修正：使用 lock_guard／unique_lock 管理生命週期，檢查例外與提前 return 的路徑。",
+            "驗證：用 ThreadSanitizer 重跑，確認每次鎖定只由持有者解鎖。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "cuda-illegal-address",
+        re: r#"(?i)cudaErrorIllegalAddress|CUDA error: an illegal memory access|compute-sanitizer.*Invalid __global__"#,
+        title: "CUDA 存取了無效記憶體",
+        steps: &[
+            "原因：可能是索引越界、無效裝置指標，或非同步工作仍在使用已釋放的緩衝區。",
+            "修正：檢查 kernel 索引邊界及配置／釋放順序；用 compute-sanitizer --tool memcheck 定位第一個錯誤。",
+            "驗證：CUDA 錯誤可能延後回報；除錯時在可疑 kernel 後暫時同步定位，正式版保留必要的資料依賴同步。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "cuda-out-of-memory",
+        re: r#"(?i)cudaErrorMemoryAllocation|CUDA out of memory|CUDA error: out of memory"#,
+        title: "GPU 記憶體不足",
+        steps: &[
+            "原因：配置量或同時存活的緩衝區超過可用顯存。",
+            "修正：減少批次大小、重用緩衝區並檢查洩漏；確認其他行程是否佔用 GPU。",
+            "驗證：記錄尖峰顯存及多輪執行後的使用量；只降低單次配置可能掩蓋洩漏。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "cuda-invalid-device",
+        re: r#"(?i)cudaErrorInvalidDevice|CUDA error: invalid device ordinal"#,
+        title: "指定的 CUDA 裝置不存在",
+        steps: &[
+            "原因：裝置編號超出目前行程可見範圍。",
+            "修正：檢查 cudaGetDeviceCount 與 CUDA_VISIBLE_DEVICES；遮罩後的裝置編號會重新排列。",
+            "驗證：在相同容器與環境列出可見 GPU，再用有效編號測試。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "mpi-truncate",
+        re: r#"\bMPI_ERR_TRUNCATE\b|(?i:MPI.*message truncated)"#,
+        title: "MPI 接收緩衝區太小",
+        steps: &[
+            "原因：接收端的 count／datatype 容量不足以容納訊息。",
+            "修正：核對傳送與接收的 tag、communicator、datatype；變動長度訊息可先 Probe／Get_count 再配置。",
+            "驗證：測試最大訊息及不同 rank 的長度，不要單純忽略錯誤或任意加大固定緩衝區。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "mpi-rank",
+        re: r#"\bMPI_ERR_RANK\b"#,
+        title: "MPI 指定了無效 rank",
+        steps: &[
+            "原因：目的或來源 rank 不屬於目前 communicator。",
+            "修正：以 MPI_Comm_size 取得大小，確認 rank 在 0 到 size-1；分割 communicator 後要用新的編號。",
+            "驗證：測試單一與多個 rank，檢查邊界與鄰居交換的編號。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "mpi-count",
+        re: r#"\bMPI_ERR_COUNT\b"#,
+        title: "MPI 訊息數量參數無效",
+        steps: &[
+            "原因：count 可能為負值、溢位，或不符合使用的 MPI 介面限制。",
+            "修正：檢查元素數與位元組數是否混用；大訊息可分塊，或在環境支援時使用 large-count 介面。",
+            "驗證：記錄每個 rank 的 count 與 datatype，測試空訊息及最大資料量。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "mp-broken-pool",
+        re: r#"\bBrokenProcessPool\b|A process in the process pool was terminated abruptly"#,
+        title: "工作行程異常結束",
+        steps: &[
+            "原因：worker 可能被系統終止、原生函式崩潰，或初始化失敗。",
+            "修正：先讀取 worker 的第一個錯誤與系統 OOM 記錄；縮小輸入並直接執行同一工作以定位。",
+            "驗證：限制同時執行工作數及記憶體；主行程要收集 Future 例外並重建已損壞的工作池。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "mp-spawn-bootstrap",
+        re: r#"An attempt has been made to start a new process before the current process has finished its bootstrapping phase"#,
+        title: "子行程啟動時重複載入主程式",
+        steps: &[
+            "原因：spawn 載入主模組時再次建立子行程。",
+            "修正：將啟動 Process／Pool 的程式放進 if __name__ == \"__main__\":，worker 函式保留在模組頂層。",
+            "驗證：以 spawn 啟動方式測試；確認 import 模組不會自動建立工作池。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "async-loop-running",
+        re: r#"asyncio\.run\(\) cannot be called from a running event loop|This event loop is already running"#,
+        title: "在已啟動的事件迴圈內再次啟動迴圈",
+        steps: &[
+            "原因：目前執行緒已有事件迴圈，無法再巢狀執行 asyncio.run／run_until_complete。",
+            "修正：在 async 函式內直接 await；需要並行時使用 create_task 並追蹤完成與例外。",
+            "驗證：確認工作在預期的事件迴圈執行，結束前取消或等待尚未完成的 task。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "async-never-awaited",
+        re: r#"RuntimeWarning: coroutine .+ was never awaited"#,
+        title: "協程建立後沒有被等待",
+        steps: &[
+            "原因：呼叫 async 函式只建立協程物件，並不會自動執行。",
+            "修正：在 async 上下文使用 await，或以 create_task 排程並保存工作參照。",
+            "驗證：確認工作確實完成，並收集例外；不要只關閉警告。",
         ],
         rule: None,
         lib_hint: false,
@@ -690,6 +834,63 @@ pub fn known(text: &str) -> Vec<Solution> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parallel_errors_are_specific_and_have_actionable_steps() {
+        for (message, expected) in [
+            ("WARNING: ThreadSanitizer: data race", "tsan-data-race"),
+            (
+                "ThreadSanitizer: unlock of an unlocked mutex",
+                "tsan-unlock",
+            ),
+            (
+                "CUDA error: an illegal memory access",
+                "cuda-illegal-address",
+            ),
+            ("CUDA out of memory", "cuda-out-of-memory"),
+            ("cudaErrorInvalidDevice", "cuda-invalid-device"),
+            ("MPI_ERR_TRUNCATE", "mpi-truncate"),
+            ("MPI_ERR_RANK", "mpi-rank"),
+            ("MPI_ERR_COUNT", "mpi-count"),
+            (
+                "concurrent.futures.process.BrokenProcessPool",
+                "mp-broken-pool",
+            ),
+            (
+                "An attempt has been made to start a new process before the current process has finished its bootstrapping phase",
+                "mp-spawn-bootstrap",
+            ),
+            (
+                "asyncio.run() cannot be called from a running event loop",
+                "async-loop-running",
+            ),
+            (
+                "RuntimeWarning: coroutine 'main' was never awaited",
+                "async-never-awaited",
+            ),
+        ] {
+            let solutions = known(message);
+            let solution = solutions
+                .iter()
+                .find(|s| s.id == expected)
+                .unwrap_or_else(|| panic!("{message}: {solutions:?}"));
+            assert_eq!(solution.steps.len(), 3);
+            assert!(solution.steps[0].starts_with("原因："));
+            assert!(solution.steps[1].starts_with("修正："));
+            assert!(solution.steps[2].starts_with("驗證："));
+        }
+        assert!(
+            !known("socket: Resource temporarily unavailable")
+                .iter()
+                .any(|s| s.id == "thread-create")
+        );
+        assert!(
+            known("libgomp: Thread creation failed: Resource temporarily unavailable")
+                .iter()
+                .any(|s| s.id == "thread-create")
+        );
+        assert!(known("ordinary text about memory and threads").is_empty());
+    }
 
     #[test]
     fn known_errors_with_library_hints() {

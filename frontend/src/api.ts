@@ -291,7 +291,16 @@ export interface DiagNote {
   score: number;
 }
 
+export interface DiagnoseFix {
+  rule: string;
+  line: number;
+  title: string;
+  /** Complete replacement for the report's formatted snippet. */
+  replacement: string;
+}
+
 export interface DiagnoseReport {
+  fixes?: DiagnoseFix[];
   kind: 'error' | 'code';
   lang: string | null;
   formatted: string;

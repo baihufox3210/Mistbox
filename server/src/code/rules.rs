@@ -370,6 +370,7 @@ pub fn check(lang: Lang, tree: &Tree, src: &str, f: &Facts) -> Vec<Finding> {
         Lang::Python => check_python(tree, src, f, &mut o),
         _ => check_c(lang, tree, src, f, &mut o),
     }
+    o.v.extend(super::parallel::check(lang, tree, src));
     for (id, cap) in CAPS {
         let n = o.counts.get(id).copied().unwrap_or(0);
         if n > *cap
@@ -1000,7 +1001,16 @@ fn call_c(n: Node, anc: &[Node], src: &str, f: &Facts, o: &mut Out, in_irq: bool
             .and_then(|x| x.child_by_field_name("condition"))
         {
             let c = text(cond, src);
-            if c.contains("threadIdx") || c.contains("tid") || c.contains("lane") {
+            let mut divergent = false;
+            walk(cond, &mut |n, _| {
+                if n.kind() == "identifier"
+                    && matches!(text(n, src), "threadIdx" | "tid" | "lane" | "lane_id")
+                {
+                    divergent = true;
+                }
+                true
+            });
+            if divergent {
                 o.add(
                     "cuda-syncthreads-divergent",
                     n,
@@ -1085,26 +1095,22 @@ fn omp(pragma: Node, arg: &str, anc: &[Node], src: &str, o: &mut Out) {
 
     // Variables that are private / reductions / declared inside the region / the loop variable.
     let mut private: HashSet<String> = HashSet::new();
-    for clause in [
-        "reduction",
-        "private",
-        "firstprivate",
-        "lastprivate",
-        "linear",
-        "copyin",
-    ] {
-        let mut rest = arg;
-        while let Some(i) = rest.find(&format!("{clause}(")) {
-            let after = &rest[i + clause.len() + 1..];
-            let end = after.find(')').unwrap_or(after.len());
-            let list = after[..end].rsplit(':').next().unwrap_or("");
-            private.extend(
-                list.split(',')
-                    .map(|v| v.trim().to_string())
-                    .filter(|v| !v.is_empty()),
-            );
-            rest = &after[end..];
-        }
+    static PRIVATE_CLAUSE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"\b(?:reduction|private|firstprivate|lastprivate|linear|copyin)\s*\(([^)]*)\)",
+        )
+        .unwrap()
+    });
+    for cap in PRIVATE_CLAUSE.captures_iter(arg) {
+        private.extend(
+            cap[1]
+                .rsplit(':')
+                .next()
+                .unwrap_or("")
+                .split(',')
+                .map(|v| v.trim().to_string())
+                .filter(|v| !v.is_empty()),
+        );
     }
     if is_for
         && let Some(init) = region.child_by_field_name("initializer")
@@ -1137,7 +1143,11 @@ fn omp(pragma: Node, arg: &str, anc: &[Node], src: &str, o: &mut Out) {
                     .map(|a| text(a, src).trim())
                     .unwrap_or("");
                 if a.starts_with("omp") && (a.contains("atomic") || a.contains("critical")) {
-                    if let Some(s) = n.next_named_sibling() {
+                    let mut statement = n.next_named_sibling();
+                    while statement.is_some_and(|n| n.kind() == "comment") {
+                        statement = statement.and_then(|n| n.next_named_sibling());
+                    }
+                    if let Some(s) = statement {
                         protected.insert(s.id());
                     }
                     if is_for && a.contains("critical") {
@@ -1170,17 +1180,23 @@ fn omp(pragma: Node, arg: &str, anc: &[Node], src: &str, o: &mut Out) {
                 let v = text(target, src);
                 if !private.contains(v) {
                     let red = match opsym {
-                        "*=" => "*",
-                        "|=" => "|",
-                        "&=" => "&",
-                        "^=" => "^",
-                        _ => "+",
+                        "+=" | "-=" | "++" => Some("+"),
+                        "*=" => Some("*"),
+                        "|=" => Some("|"),
+                        "&=" => Some("&"),
+                        "^=" => Some("^"),
+                        _ => None,
                     };
+                    let advice = red
+                        .map(|op| format!("可評估 reduction({op}:{v}) 或 omp atomic"))
+                        .unwrap_or_else(|| {
+                            "請依操作使用 atomic 或共同鎖定，不可任意改成加總歸約".to_string()
+                        });
                     o.add(
                         "omp-race",
                         n,
                         &full,
-                        format!("`{}`：`{v}` 是所有執行緒共享的變數；加上 `reduction({red}:{v})` 或 `#pragma omp atomic`", text(n, src)),
+                        format!("`{}`：`{v}` 是共享變數；{advice}", text(n, src)),
                     );
                 }
             }
@@ -1266,8 +1282,15 @@ fn check_python(tree: &Tree, src: &str, f: &Facts, o: &mut Out) {
                     a.kind(),
                     "function_definition" | "class_definition" | "lambda"
                 ) || (a.kind() == "if_statement"
-                    && a.child_by_field_name("condition")
-                        .is_some_and(|c| text(c, src).contains("__name__")))
+                    && a.child_by_field_name("condition").is_some_and(|c| {
+                        matches!(
+                            text(c, src).split_whitespace().collect::<String>().as_str(),
+                            "__name__=='__main__'"
+                                | "__name__==\"__main__\""
+                                | "'__main__'==__name__"
+                                | "\"__main__\"==__name__"
+                        )
+                    }))
             });
             if !guarded {
                 o.add("mp-main-guard", n, anc, format!("模組頂層建立 `{func}`"));

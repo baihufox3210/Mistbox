@@ -2370,12 +2370,14 @@ async fn diagnose_mode_locates_code_fixes_and_notes() {
     assert!(stack["excerpt"].as_array().unwrap().iter().any(|x| x["n"] == 12 && x["text"].as_str().unwrap().contains("0x4 == 0")));
     assert!(locs.iter().any(|l| l["reason"] == "symbol" && l["line"] == 3), "definition of fill_buffer: {locs:?}");
     let sol: Vec<_> = v["solutions"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect();
-    assert!(sol.contains(&"undefined-reference".into()) && sol.contains(&"bit-precedence".into()), "{sol:?}");
+    assert!(sol.contains(&"undefined-reference".into()) && sol.contains(&"parentheses-bitwise".into()), "{sol:?}");
     assert!(v["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "bit-precedence" && f["file"]["id"] == led.as_str()));
     let n = &v["notes"][0];
     assert_eq!(n["file"]["path"], "/notes/bits.md", "{:?}", v["notes"]);
     assert_eq!(n["heading"], "優先順序");
     assert!(n["matched"].as_array().unwrap().iter().any(|m| m == "bit-precedence"));
+
+    assert_eq!(v["fixes"], json!([]), "logs must not offer code edits");
 
     // Runtime message: where the string is raised.
     let r = diag(json!({ "text": "Traceback (most recent call last):\n  File \"x.py\", line 9, in main\nRuntimeError: Failed to open device /dev/ttyUSB3\n" })).await;
@@ -2392,6 +2394,11 @@ async fn diagnose_mode_locates_code_fixes_and_notes() {
     let v = r.json();
     assert_eq!((v["kind"].as_str(), v["lang"].as_str()), (Some("code"), Some("c")));
     assert!(v["formatted"].as_str().unwrap().starts_with("static void paint"));
+    let fix = v["fixes"].as_array().unwrap().iter().find(|f| f["rule"] == "bit-precedence").expect("parentheses edit");
+    let replacement = fix["replacement"].as_str().unwrap();
+    assert!(replacement.contains("(x & 0x4) == 0"));
+    let corrected = diag(json!({ "text": replacement, "mode": "code", "lang": "c" })).await.json();
+    assert!(!corrected["findings"].as_array().unwrap().iter().any(|f| f["file"].is_null() && f["rule"] == "bit-precedence"));
     assert!(v["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "bit-precedence" && f["line"] == 9 && f["file"].is_null()));
     assert!(
         v["locations"].as_array().unwrap().iter().any(|l| l["reason"] == "clone" && l["file"]["id"] == led.as_str()),
@@ -2491,4 +2498,23 @@ async fn note_front_matter_links_rules_known_errors_and_custom_errors() {
     t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
     let r = t.admin(Method::POST, "/api/v1/code/diagnose", Some(json!({ "text": "Failed to find a free participant index" }))).await;
     assert!(!r.json()["notes"].as_array().unwrap().iter().any(|n| n["file"]["path"] == "/筆記/dds.md" && n["matched"][0].as_str().unwrap().starts_with("標註")));
+}
+
+#[tokio::test]
+async fn diagnose_semantic_note_chunks_do_not_repeat_labels_or_inflate_scores() {
+    let t = T::new().await;
+    let query = "Failed to find a free participant index";
+    let body = format!("# DDS\n\n{}", format!("{query}\n\n").repeat(80));
+    let id = t.upload("root", "dds-many-chunks.md", body.as_bytes()).await.json()["id"].as_str().unwrap().to_string();
+    t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
+    let rag = t.state.rag.as_ref().unwrap();
+    rag.index_pending(&t.state.db, &t.state.store).await.unwrap();
+    let response = t.admin(Method::POST, "/api/v1/code/diagnose", Some(json!({"text":query}))).await;
+    assert_eq!(response.status, StatusCode::OK);
+    let report = response.json();
+    let notes = report["notes"].as_array().unwrap();
+    assert_eq!(notes.iter().filter(|n| n["file"]["id"] == id).count(), 1);
+    let note = notes.iter().find(|n| n["file"]["id"] == id).unwrap();
+    let labels = note["matched"].as_array().unwrap();
+    assert_eq!(labels.iter().filter(|s| *s == "語意相近").count(), 1, "{note:?}");
 }

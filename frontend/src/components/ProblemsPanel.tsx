@@ -153,7 +153,7 @@ function FindingList({
   showFile: boolean;
 }) {
   const [open, setOpen] = useState<number | null>(null);
-  if (findings.length === 0) return <div className="state small muted">沒有發現問題 ✓</div>;
+  if (findings.length === 0) return <div className="state small muted">目前規則未發現問題</div>;
   return (
     <ul className="finding-list">
       {findings.map((f, i) => {

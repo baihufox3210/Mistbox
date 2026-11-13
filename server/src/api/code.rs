@@ -273,15 +273,29 @@ pub async fn diagnose(
     if let Some(rag) = &state.rag
         && let Ok(hits) = rag.search(&state, &p, &note_query, 12).await
     {
-        for h in hits
-            .into_iter()
-            .filter(|h| h.node.name.to_ascii_lowercase().ends_with(".md"))
-        {
-            let score = h.score * 2.0;
+        let mut semantic_notes = std::collections::HashSet::new();
+        let mut hits = hits;
+        hits.sort_by(|a, b| {
+            b.score
+                .total_cmp(&a.score)
+                .then_with(|| a.node.id.cmp(&b.node.id))
+                .then(a.line_start.cmp(&b.line_start))
+        });
+        for h in hits.into_iter().filter(|h| {
+            h.score.is_finite()
+                && h.score >= 0.45
+                && h.node.name.to_ascii_lowercase().ends_with(".md")
+        }) {
+            if !semantic_notes.insert(h.node.id.clone()) {
+                continue;
+            }
+            let score = h.score;
             match report.notes.iter_mut().find(|n| n.node_id == h.node.id) {
                 Some(n) => {
                     n.score += score;
-                    n.matched.push("語意相近".into());
+                    if !n.matched.iter().any(|m| m == "語意相近") {
+                        n.matched.push("語意相近".into());
+                    }
                 }
                 None => {
                     let body: Option<String> =
@@ -305,7 +319,11 @@ pub async fn diagnose(
                 }
             }
         }
-        report.notes.sort_by(|a, b| b.score.total_cmp(&a.score));
+        report.notes.sort_by(|a, b| {
+            b.score
+                .total_cmp(&a.score)
+                .then_with(|| a.node_id.cmp(&b.node_id))
+        });
         report.notes.truncate(8);
     }
 

@@ -42,10 +42,14 @@ export function Topbar({
   return (
     <header className="topbar" data-region="topbar">
       {leading}
-      <div className="brand">
+      <button type="button" className="brand brand-home" aria-label="回到雲端首頁" title="回到雲端首頁" onClick={() => {
+        setLayout('drive');
+        m.goHome();
+        setMenu(false);
+      }}>
         <Logo size={24} />
         <span>Mistbox</span>
-      </div>
+      </button>
       <button className="cmd-center" onClick={() => m.setPaletteMode('all')} title="指令面板（Ctrl+Shift+P / F1 / Ctrl+K）">
         <Icon name="search" />
         <span className="cmd-text">搜尋檔案、指令…</span>

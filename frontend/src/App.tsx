@@ -62,12 +62,9 @@ function Workspace({ username, onLogout }: { username: string; onLogout: () => v
   mRef.current = m;
   const setLayout = useCallback((l: Layout) => {
     persistLayout(l);
-    setLayoutState((prev) => {
-      // Leaving the IDE: keep the tabs, but don't pop the active file up as a
-      // full-screen preview over the drive view.
-      if (prev === 'ide' && l === 'drive') mRef.current.setActive(null);
-      return l;
-    });
+    // Clear the preview before changing layouts; keep file tabs and drafts.
+    if (l === 'drive') mRef.current.setActive(null);
+    setLayoutState(l);
   }, []);
   const target = useCallback(() => targetRef.current(), []);
   const commands = useCommands(m, { target, layout, setLayout, onLogout });

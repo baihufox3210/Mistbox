@@ -107,6 +107,12 @@ export function useDrive(opts: { admin?: boolean } = {}) {
     [syncUrl],
   );
 
+  const goHome = useCallback(() => {
+    setDirId('root');
+    setActive(null);
+    syncUrl('root', null, true);
+  }, [syncUrl]);
+
   const openFile = useCallback(
     (n: NodeInfo, line?: number) => {
       if (n.kind === 'dir') return navigate(n.id);
@@ -295,6 +301,7 @@ export function useDrive(opts: { admin?: boolean } = {}) {
   return {
     dirId,
     navigate,
+    goHome,
     listing,
     listErr,
     loading,

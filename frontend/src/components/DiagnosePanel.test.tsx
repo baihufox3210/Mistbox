@@ -55,3 +55,45 @@ it('shows failed requests inline', async () => {
   await setup(); change('import os'); run();
   expect((await screen.findByRole('alert')).textContent).toContain('offline');
 });
+
+it('previews a fix, applies only to the scratch input and supports undo', async () => {
+  const replacement = 'import sys';
+  vi.spyOn(api, 'codeDiagnose').mockResolvedValue({ ...report, fixes: [
+    { rule: 'test', line: 1, title: '測試修正', replacement },
+  ] });
+  await setup(); change('import os'); run();
+  await screen.findByRole('button', { name: '預覽修正' });
+  expect(screen.queryByRole('button', { name: '套用修正' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '預覽修正' }));
+  expect(screen.getByLabelText('修正預覽').textContent).toContain(replacement);
+  expect((screen.getByLabelText('測試編輯器') as HTMLTextAreaElement).value).toBe('import os');
+  fireEvent.click(screen.getByRole('button', { name: '套用修正' }));
+  expect((screen.getByLabelText('測試編輯器') as HTMLTextAreaElement).value).toBe(replacement);
+  expect(screen.getByRole('status').textContent).toContain('請重新分析');
+  expect(screen.queryByRole('button', { name: '套用修正' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '復原修正' }));
+  expect((screen.getByLabelText('測試編輯器') as HTMLTextAreaElement).value).toBe('import os');
+});
+it('invalidates a fix preview after input changes', async () => {
+  vi.spyOn(api, 'codeDiagnose').mockResolvedValue({ ...report, fixes: [
+    { rule: 'test', line: 1, title: '測試修正', replacement: 'import sys' },
+  ] });
+  await setup(); change('import os'); run();
+  fireEvent.click(await screen.findByRole('button', { name: '預覽修正' }));
+  change('new content');
+  expect(screen.queryByRole('button', { name: '套用修正' })).toBeNull();
+});
+
+it('deduplicates note labels and separates semantic references from direct matches', async () => {
+  const file = { id: 'code', name: 'code.py', path: '/code.py' };
+  vi.spyOn(api, 'codeDiagnose').mockResolvedValue({ ...report,
+    locations: [{ node_id: 'code', file, line: 1, line_start: 1, line_end: 10, reason: 'similar', label: '相似實作', score: 0.9, excerpt: [] }],
+    notes: [{ node_id: 'note', file: { id: 'note', name: 'note.md', path: '/note.md' }, line: 1, heading: null, excerpt: '', matched: ['語意相近', '語意相近', 'rule'], score: 1 }],
+  });
+  await setup(); change('import os'); run();
+  await screen.findByText('相似實作參考（1 個檔案）');
+  expect(screen.getAllByText('語意相近')).toHaveLength(1);
+  const details = screen.getByText('相似實作參考（1 個檔案）').closest('details');
+  expect(details?.hasAttribute('open')).toBe(false);
+  expect(details?.textContent).toContain('不是錯誤位置或已驗證的修法');
+});

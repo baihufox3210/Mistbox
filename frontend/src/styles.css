@@ -810,8 +810,14 @@ html[data-has-bg] .file-card {
   background: color-mix(in srgb, var(--panel) calc(var(--glass) * 100%), transparent);
 }
 
+/* Frost the surface behind the editor, leaving text and cursors sharp. */
+html[data-has-bg] .code-host {
+  background: color-mix(in srgb, var(--code-bg) calc(clamp(0.25, var(--glass), 0.6) * 100%), transparent);
+  -webkit-backdrop-filter: blur(var(--code-glass-blur, 6px));
+  backdrop-filter: blur(var(--code-glass-blur, 6px));
+}
 html[data-has-bg] .code-host .cm-editor {
-  background: color-mix(in srgb, var(--code-bg) calc(var(--glass) * 100%), transparent);
+  background: transparent;
 }
 html[data-has-bg] .code-host .cm-gutters {
   background: color-mix(in srgb, var(--code-gutter-bg) calc(var(--glass) * 100%), transparent);
@@ -973,3 +979,16 @@ html[data-has-bg] .diag-tab .loc-excerpt {
 }
 .diag-tab .diag-controls .btn.primary { flex-shrink: 0; min-width: 76px; }
 .topbar .diagnose-entry { flex-shrink: 0; }
+
+.diag-fixes { display: flex; flex-direction: column; gap: 8px; }
+.diag-fixes p { margin: 0; }
+.fix-preview pre { margin: 0; padding: 10px; max-height: 32vh; overflow: auto; font-family: var(--mono); font-size: 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.fix-preview h3 { margin: 0; font-size: 14px; }
+.fix-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.diag-similar > summary { cursor: pointer; color: var(--text-2); font-size: 13px; padding: 8px 0; }
+.diag-similar .loc-card { margin: 8px 0; }
+
+.brand-home { border: 0; background: transparent; padding: 4px; border-radius: var(--radius); font-family: inherit; cursor: pointer; }
+.brand-home:hover { background: var(--surface-2); }
+.brand-home:focus-visible { outline: 2px solid var(--accent-500); outline-offset: 3px; }
