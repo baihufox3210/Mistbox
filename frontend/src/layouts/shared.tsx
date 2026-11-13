@@ -40,7 +40,7 @@ export function useTree(version: number, initiallyOpen: string[] = ['root']) {
 
 export function setAsBackground(m: DriveModel, n: NodeInfo) {
   api.saveSettings({ background_url: contentUrl(n.id, true) }).then(
-    (s) => (applyBackground(s), m.toast('已設為背景，可在設定調整遮罩與模糊')),
+    (s) => (applyBackground(s), m.toast('已設為背景，可在設定調整遮罩不透明度與模糊')),
     (e) => m.toast(errorText(e)),
   );
 }

@@ -107,8 +107,8 @@ export default function SettingsDialog({
             或在雲端圖片上按右鍵 →「設為背景」。留空即移除背景。
           </p>
           <label className="field range">
-            遮罩深度 {Math.round(dim * 100)}%
-            <input type="range" min={0} max={0.95} step={0.05} value={dim} onChange={(e) => setDim(Number(e.target.value))} />
+            遮罩不透明度 {Math.round(dim * 100)}%
+            <input type="range" min={0} max={100} step={1} value={Math.round(dim * 100)} onChange={(e) => setDim(Number(e.target.value) / 100)} />
           </label>
           <label className="field range">
             模糊 {blur}px

@@ -1156,7 +1156,7 @@ async fn settings_background_and_dynamic_csp() {
         )
         .await;
     assert_eq!(ok.status, StatusCode::OK);
-    assert_eq!(ok.json()["background_dim"], 0.95, "clamped");
+    assert_eq!(ok.json()["background_dim"], 1.0, "clamped");
     let r = t
         .admin(Method::GET, "/api/v1/nodes/root/children", None)
         .await;
@@ -1171,6 +1171,19 @@ async fn settings_background_and_dynamic_csp() {
             .contains("script-src 'self' https"),
         "only img-src widened"
     );
+    for dim in [0.0, 0.01, 0.5, 0.99, 1.0] {
+        let saved = t
+            .admin(
+                Method::PUT,
+                "/api/v1/settings",
+                Some(json!({"background_dim": dim})),
+            )
+            .await;
+        assert_eq!(saved.status, StatusCode::OK);
+        assert_eq!(saved.json()["background_dim"], dim);
+        let loaded = t.admin(Method::GET, "/api/v1/settings", None).await;
+        assert_eq!(loaded.json()["background_dim"], dim);
+    }
     // API keys cannot read or change settings.
     let key = t
         .key(json!({"name":"k","permissions":{"list":true,"read":true,"write":true}}))

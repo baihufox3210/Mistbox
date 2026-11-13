@@ -104,13 +104,13 @@
 html[data-theme='dark'] {
   --focus-ring: rgba(56, 189, 248, 0.6);
   --focus-soft: rgba(56, 189, 248, 0.2);
-  --bg: #0a1520;
-  --surface: #0f1d2a;
-  --surface-2: #0c1924;
-  --panel: #13263a;
-  --hover: #17304a;
-  --line: #1d3448;
-  --line-strong: #2a4a66;
+  --bg: #030609;
+  --surface: #080b0f;
+  --surface-2: #06090d;
+  --panel: #0c1016;
+  --hover: #141b24;
+  --line: #202831;
+  --line-strong: #303c49;
   --selection: #123a5a;
   --selection-strong: #17507d;
   --primary-bg: #0e7dc0;
@@ -132,8 +132,8 @@ html[data-theme='dark'] {
   --icon-folder: #5cc7fa;
   --icon-line: #8aa4b8;
   --icon-folder-back: #0b86c4;
-  --code-bg: #0c1924;
-  --code-gutter-bg: #0b1620;
+  --code-bg: #06090d;
+  --code-gutter-bg: #05080b;
   --code-active-line: rgba(56, 189, 248, 0.07);
   --code-selection: #1c4a6e;
   --code-search-match: #6b5208;
@@ -153,7 +153,7 @@ html[data-theme='dark'] {
   --syn-tag: #ffab70;
   --syn-heading: #7cc8ff;
   --syn-link: #5cc7fa;
-  --mb-bg-overlay: 6, 14, 22;
+  --mb-bg-overlay: 0, 0, 0;
   color-scheme: dark;
 }
 

@@ -80,7 +80,7 @@ pub async fn put(State(state): State<AppState>, _s: AdminSession, Json(p): Json<
         kv.push(("background_url", u));
     }
     if let Some(d) = p.background_dim {
-        kv.push(("background_dim", d.clamp(0.0, 0.95).to_string()));
+        kv.push(("background_dim", d.clamp(0.0, 1.0).to_string()));
     }
     if let Some(b) = p.background_blur {
         kv.push(("background_blur", b.clamp(0.0, 40.0).to_string()));
