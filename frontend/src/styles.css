@@ -504,8 +504,8 @@ table.files { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .markdown-body tr:nth-child(even) td { background: var(--surface-2); }
 .markdown-body blockquote { margin: 1em 0; padding: 2px 16px; border-left: 4px solid var(--accent-400); color: var(--text-2); background: var(--accent-50); }
 html[data-theme='dark'] .markdown-body blockquote { background: #0f2a40; }
-.markdown-body code { background: var(--panel); padding: .1em .35em; border-radius: 4px; font-size: .88em; }
-.markdown-body pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; overflow: auto; line-height: 1.5; }
+.markdown-body code { background: color-mix(in srgb, var(--panel) 85%, transparent); padding: .1em .35em; border-radius: 4px; font-size: .88em; }
+.markdown-body pre { background: color-mix(in srgb, var(--code-bg) 85%, transparent); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; overflow: auto; line-height: 1.5; }
 .markdown-body pre code { background: none; padding: 0; font-size: 13px; color: var(--syn-variable); }
 .markdown-body ul.contains-task-list { list-style: none; padding-left: 1.2em; }
 .markdown-body .task-list-item input { margin-right: 6px; accent-color: var(--accent-500); }
@@ -810,14 +810,9 @@ html[data-has-bg] .file-card {
   background: color-mix(in srgb, var(--panel) calc(var(--glass) * 100%), transparent);
 }
 
-/* Frost the surface behind the editor, leaving text and cursors sharp. */
-html[data-has-bg] .code-host {
-  background: color-mix(in srgb, var(--code-bg) calc(clamp(0.25, var(--glass), 0.6) * 100%), transparent);
-  -webkit-backdrop-filter: blur(var(--code-glass-blur, 6px));
-  backdrop-filter: blur(var(--code-glass-blur, 6px));
-}
+/* Full editors retain the regular background transparency, without blur. */
 html[data-has-bg] .code-host .cm-editor {
-  background: transparent;
+  background: color-mix(in srgb, var(--code-bg) calc(var(--glass) * 100%), transparent);
 }
 html[data-has-bg] .code-host .cm-gutters {
   background: color-mix(in srgb, var(--code-gutter-bg) calc(var(--glass) * 100%), transparent);
