@@ -18,6 +18,15 @@ describe('appearance', () => {
     icon.remove();
   });
 
+  it('matches automatic logo colors to the page theme', () => {
+    applyLogo('auto');
+    applyTheme('light');
+    expect(document.documentElement.dataset.logo).toBe('light');
+    applyTheme('dark');
+    expect(document.documentElement.dataset.logo).toBe('dark');
+    expect(getLogoPref()).toBe('auto');
+  });
+
   it('applies explicit themes and remembers the preference', () => {
     applyTheme('dark');
     expect(document.documentElement.dataset.theme).toBe('dark');

@@ -82,7 +82,7 @@ export default function SettingsDialog({
           <div className="seg-row">
             <span>Logo 配色</span>
             <div className="segmented">
-              {([['dark', '深色'], ['light', '淺藍色']] as const).map(([value, label]) => (
+              {([['auto', '跟隨主題'], ['dark', '深色'], ['light', '淺藍色']] as const).map(([value, label]) => (
                 <button key={value} className={logo === value ? 'on' : ''} aria-pressed={logo === value}
                   onClick={() => { setLogo(value); applyLogo(value); }}>{label}</button>
               ))}

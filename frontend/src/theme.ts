@@ -4,11 +4,11 @@
 import type { UiSettings } from './api';
 
 export type ThemePref = 'light' | 'dark' | 'system';
-export type LogoPref = 'dark' | 'light';
+export type LogoPref = 'auto' | 'dark' | 'light';
 export type Layout = 'drive' | 'ide';
 
 const KEY_THEME = 'mistbox.theme';
-const KEY_LOGO = 'mistbox.logo';
+const KEY_LOGO = 'mistbox.logo.v2';
 const KEY_LAYOUT = 'mistbox.layout';
 
 export function getThemePref(): ThemePref {
@@ -17,14 +17,16 @@ export function getThemePref(): ThemePref {
 }
 
 export function getLogoPref(): LogoPref {
-  return localStorage.getItem(KEY_LOGO) === 'light' ? 'light' : 'dark';
+  const pref = localStorage.getItem(KEY_LOGO);
+  return pref === 'light' || pref === 'dark' ? pref : 'auto';
 }
 
 export function applyLogo(pref: LogoPref = getLogoPref()) {
   localStorage.setItem(KEY_LOGO, pref);
-  document.documentElement.dataset.logo = pref;
+  const color = pref === 'auto' ? resolvedTheme() : pref;
+  document.documentElement.dataset.logo = color;
   const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
-  if (icon) icon.href = `/logo-${pref}.svg`;
+  if (icon) icon.href = `/logo-${color}.svg`;
 }
 
 export function getLayout(): Layout {
@@ -44,6 +46,7 @@ export function applyTheme(pref: ThemePref = getThemePref()) {
   localStorage.setItem(KEY_THEME, pref);
   document.documentElement.dataset.theme = resolvedTheme(pref);
   document.documentElement.dataset.themePref = pref;
+  applyLogo();
   window.dispatchEvent(new Event('mistbox:theme'));
 }
 
@@ -55,7 +58,6 @@ export function setLayout(l: Layout) {
 /** Follow OS changes while in "system" mode. */
 export function initTheme() {
   applyTheme(getThemePref());
-  applyLogo();
   document.documentElement.dataset.layout = getLayout();
   media()?.addEventListener('change', () => getThemePref() === 'system' && applyTheme('system'));
 }
