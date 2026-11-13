@@ -467,7 +467,9 @@ table.files { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .preview-head { display: flex; align-items: center; gap: 10px; padding: 6px 14px; border-bottom: 1px solid var(--line); flex: none; }
 .preview-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; flex: 1; }
 .preview-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preview-title .muted { font-size: 12.5px; white-space: nowrap; }
+.preview-title .muted { font-size: 12.5px; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; flex: 0 100 auto; }
+.preview-title strong { min-width: 3em; }
+.preview-head > .btn { flex: none; }
 .preview-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .preview-body > * { flex: 1; min-height: 0; }
 .viewer-toolbar { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--surface-2); border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; font-size: 13px; }
@@ -701,3 +703,44 @@ html[data-theme='dark'] .side-row.current { color: var(--accent-300); }
 .palette-item .pi-icon { color: var(--text-2); }
 .login { background: var(--bg); }
 .login-card { box-shadow: none; }
+
+/* ---- Editor groups (IDE split view) ---- */
+.egrid { position: relative; flex: 1; min-height: 0; min-width: 0; }
+.egroup { container-type: size; position: absolute; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; background: var(--surface); }
+.egroup .tabs { position: relative; }
+.tabs-fill { flex: 1 0 8px; }
+.group-actions { display: flex; align-items: center; gap: 1px; padding: 0 6px; position: sticky; right: 0; background: inherit; flex: none; }
+.group-actions .btn { color: var(--text-3); }
+.group-actions .btn:hover { color: var(--text); }
+.egroup-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.egroup-empty { margin: auto; text-align: center; padding: 24px; color: var(--text-2); }
+.egroup-empty p { margin: 4px 0; }
+/* Only the focused group's current tab carries the accent line. */
+.egrid.multi .egroup:not(.focused) .tab.on { box-shadow: inset 0 -2px 0 var(--line-strong); }
+.egrid.multi .egroup:not(.focused) .tab.on button[role=tab] { color: var(--text-2); }
+.eg-sash { position: absolute; z-index: 5; touch-action: none; }
+.eg-sash.row { width: 7px; margin-left: -3px; cursor: col-resize; }
+.eg-sash.col { height: 7px; margin-top: -3px; cursor: row-resize; }
+.eg-sash::after { content: ''; position: absolute; background: var(--line); transition: background .12s; }
+.eg-sash.row::after { left: 3px; top: 0; bottom: 0; width: 1px; }
+.eg-sash.col::after { top: 3px; left: 0; right: 0; height: 1px; }
+.eg-sash:hover::after, .eg-sash:active::after { background: var(--accent-500); }
+.eg-sash.row:hover::after, .eg-sash.row:active::after { left: 2px; width: 3px; }
+.eg-sash.col:hover::after, .eg-sash.col:active::after { top: 2px; height: 3px; }
+.eg-drop { position: absolute; z-index: 4; pointer-events: none; background: color-mix(in srgb, var(--accent-500) 12%, transparent); outline: 1px dashed var(--accent-line); outline-offset: -1px; transition: inset .08s ease-out; }
+.eg-drop.center { inset: 0; }
+.eg-drop.left { inset: 0 50% 0 0; }
+.eg-drop.right { inset: 0 0 0 50%; }
+.eg-drop.top { inset: 0 0 50% 0; }
+.eg-drop.bottom { inset: 50% 0 0 0; }
+.tab[draggable=true] { cursor: default; }
+/* Narrow groups: drop secondary details instead of overlapping. */
+@container (max-width: 420px) {
+  .egroup .preview-title .muted { display: none; }
+  .egroup .preview-head { padding: 6px 10px; }
+}
+@media (max-width: 900px) {
+  /* Narrow screens: only the focused group, full size. */
+  .egrid.multi .egroup:not(.focused), .eg-sash { display: none; }
+  .egrid.multi .egroup.focused { left: 0 !important; top: 0 !important; width: 100% !important; height: 100% !important; }
+}

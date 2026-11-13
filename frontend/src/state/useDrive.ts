@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, contentUrl, errorText, type Listing, type NodeInfo } from '../api';
 import { filesFromDrop, useUploads, type PendingFile } from '../components/Uploads';
+import { discardDraft } from './drafts';
 
 export interface Tab {
   node: NodeInfo;
@@ -130,6 +131,7 @@ export function useDrive(opts: { admin?: boolean } = {}) {
       const tab = tabs.find((t) => t.node.id === id);
       if (tab?.dirty && !force) return setDialog({ t: 'confirm-close', id });
       savers.current.delete(id);
+      discardDraft(id);
       const i = tabs.findIndex((x) => x.node.id === id);
       const next = tabs.filter((x) => x.node.id !== id);
       setTabs(next);
@@ -144,10 +146,26 @@ export function useDrive(opts: { admin?: boolean } = {}) {
 
   const closeAll = useCallback(() => {
     if (tabs.some((t) => t.dirty)) return toast('有未儲存的分頁，請先儲存或個別關閉');
+    tabs.forEach((t) => discardDraft(t.node.id));
     setTabs([]);
     setActive(null);
     syncUrl(dirId, null, false);
   }, [tabs, dirId, syncUrl, toast]);
+
+  /** Close several tabs at once (an editor group); refuses if any is unsaved. */
+  const closeTabs = useCallback(
+    (ids: string[]) => {
+      const set = new Set(ids);
+      if (tabs.some((t) => set.has(t.node.id) && t.dirty)) return toast('有未儲存的分頁，請先儲存或個別關閉');
+      ids.forEach((id) => (savers.current.delete(id), discardDraft(id)));
+      setTabs(tabs.filter((t) => !set.has(t.node.id)));
+      if (activeRef.current && set.has(activeRef.current)) {
+        setActive(null);
+        syncUrl(dirId, null, false);
+      }
+    },
+    [tabs, dirId, syncUrl, toast],
+  );
 
   const setDirty = useCallback((id: string, dirty: boolean) => {
     setTabs((t) => (t.some((x) => x.node.id === id && !!x.dirty !== dirty) ? t.map((x) => (x.node.id === id ? { ...x, dirty } : x)) : t));
@@ -239,6 +257,7 @@ export function useDrive(opts: { admin?: boolean } = {}) {
     },
     afterDelete: (ids: string[], permanent = false) => {
       const set = new Set(ids);
+      ids.forEach(discardDraft);
       setTabs((t) => t.filter((x) => !set.has(x.node.id)));
       if (activeRef.current && set.has(activeRef.current)) setActive(null);
       bump();
@@ -277,6 +296,7 @@ export function useDrive(opts: { admin?: boolean } = {}) {
     openFile,
     closeTab,
     closeAll,
+    closeTabs,
     setDirty,
     updateNode,
     registerSaver,

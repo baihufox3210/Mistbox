@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, contentUrl, errorText, type NodeInfo, type TextPreview } from '../api';
 import { ErrorState } from '../components/ErrorState';
 import { Icon } from '../components/Icon';
 import { formatSize } from '../format';
 import { Info } from './Info';
 import { useCaps } from '../caps';
+import { discardDraft, getDraft, putDraft } from '../state/drafts';
 
 export function useText(id: string) {
   const [data, setData] = useState<TextPreview | null>(null);
@@ -103,10 +104,21 @@ export function useEditing(node: NodeInfo, d: TextPreview | null, hooks?: Editor
   const canEdit = caps.write && !!d && !d.binary && !d.truncated && (d.valid_utf8 || d.size === 0) && d.encoding === 'UTF-8';
   const [editing, setEditing] = useState(!!hooks?.startEditing);
   const [base, setBase] = useState<string | null>(null);
-  const [draft, setDraft] = useState<string | null>(null);
+  // Restore unsaved text if this editor was unmounted (tab switch / moved group).
+  const [draft, setDraftState] = useState<string | null>(() => getDraft(node.id)?.text ?? null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
-  const [sha, setSha] = useState(node.sha256 ?? '');
+  const [sha, setSha] = useState(() => getDraft(node.id)?.sha ?? node.sha256 ?? '');
+  const shaRef = useRef(sha);
+  shaRef.current = sha;
+  const setDraft = useCallback(
+    (t: string | null) => {
+      setDraftState(t);
+      if (t === null) discardDraft(node.id);
+      else putDraft(node.id, { text: t, sha: shaRef.current });
+    },
+    [node.id],
+  );
   const original = base ?? d?.text ?? '';
   const text = draft ?? original;
   const dirty = draft !== null && draft !== original;

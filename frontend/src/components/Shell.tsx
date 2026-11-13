@@ -128,6 +128,16 @@ export function useCommands(
       { id: 'password', label: '變更密碼', icon: 'lock', keywords: 'password', run: () => m.setDialog({ t: 'password' }) },
       { id: 'logout', label: '登出', icon: 'logout', keywords: 'logout sign out', run: onLogout },
     ];
+    if (layout === 'ide') {
+      const grid = (detail: string) => () => window.dispatchEvent(new CustomEvent('mistbox:editor', { detail }));
+      c.splice(7, 0,
+        { id: 'split-right', label: '編輯器：向右分割', icon: 'splitRight', shortcut: `${MOD}+\\`, keywords: 'split editor right 分割 並排 左右', run: grid('split-right') },
+        { id: 'split-down', label: '編輯器：向下分割', icon: 'splitDown', shortcut: `${MOD}+Alt+\\`, keywords: 'split editor down 分割 上下', run: grid('split-down') },
+        { id: 'focus-next-group', label: '編輯器：切換到下一個群組', icon: 'layout', shortcut: `${MOD}+1…9`, keywords: 'focus next editor group 群組', run: grid('focus-next') },
+        { id: 'join-groups', label: '編輯器：合併所有群組', icon: 'layout', keywords: 'join merge editor groups 合併 取消分割', run: grid('join-all') },
+        { id: 'close-group', label: '編輯器：關閉目前群組', icon: 'close', keywords: 'close editor group 群組', run: grid('close-group') },
+      );
+    }
     if (activeNode) {
       c.splice(7, 0,
         { id: 'download-active', label: `下載目前檔案：${activeNode.name}`, icon: 'download', keywords: 'download', run: () => m.actions.download(activeNode) },

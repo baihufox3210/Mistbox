@@ -1,6 +1,6 @@
 // IDE layout: explorer tree (folders *and* files) on the left with actions and
 // uploads docked at its bottom; the whole right side is tabs + editor/preview.
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NodeInfo } from '../api';
 import { ContextMenu, type MenuState } from '../components/ContextMenu';
 import { FileIcon } from '../components/FileIcon';
@@ -9,9 +9,8 @@ import { MOD } from '../components/Shell';
 import { UploadPanel } from '../components/Uploads';
 import { languageFor } from '../fileTypes';
 import type { DriveModel } from '../state/useDrive';
-import { DND_TYPE, dropMove, emptyMenu, nodeMenu, ragLabel, useRagStatus, useTabHooks, useTree } from './shared';
-
-const Preview = lazy(() => import('../preview/Preview'));
+import EditorGrid from './EditorGrid';
+import { DND_TYPE, dropMove, emptyMenu, nodeMenu, ragLabel, useRagStatus, useTree } from './shared';
 
 interface Row {
   node: NodeInfo;
@@ -133,7 +132,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
   };
 
   const activeTab = m.tabs.find((t) => t.node.id === m.active);
-  const hooks = useTabHooks(m, activeTab, true);
+  const nodeFor = useCallback((id: string) => byId.get(id), [byId]);
   const rootList = tree.kids.root;
 
   return (
@@ -261,28 +260,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
       <div className="resizer" role="separator" aria-orientation="vertical" aria-label="調整檔案總管寬度" onPointerDown={drag} />
 
       <section className="editor-pane" data-region="editor">
-        {m.tabs.length > 0 && (
-          <div className="tabs" role="tablist" aria-label="開啟的檔案">
-            {m.tabs.map((t) => (
-              <div key={t.node.id} className={`tab ${t.node.id === m.active ? 'on' : ''}`} role="presentation" onMouseDown={(e) => e.button === 1 && (e.preventDefault(), m.closeTab(t.node.id))}>
-                <button role="tab" aria-selected={t.node.id === m.active} onClick={() => m.setActive(t.node.id)} title={t.node.path ?? t.node.name}>
-                  <FileIcon name={t.node.name} kind="file" size={15} />
-                  {t.node.name}
-                </button>
-                <button className="tab-x" aria-label={`關閉 ${t.node.name}`} onClick={() => m.closeTab(t.node.id)}>
-                  {t.dirty ? <span className="dirty-dot">●</span> : <Icon name="close" size={12} />}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {activeTab ? (
-          <Suspense fallback={<div className="state"><span className="spinner" /> 載入編輯器…</div>}>
-            <Preview key={activeTab.node.id + ':' + (activeTab.rev ?? 0)} node={activeTab.node} onOpenPath={m.actions.openPath} editor={hooks} />
-          </Suspense>
-        ) : (
-          <Welcome m={m} target={target} />
-        )}
+        <EditorGrid m={m} nodeFor={nodeFor} empty={<Welcome m={m} target={target} />} />
       </section>
 
       <footer className="statusbar" data-region="statusbar">
