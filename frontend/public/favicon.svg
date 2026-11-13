@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#c4dcf2"/><path d="M8 21c-2.2 0-4-1.6-4-3.7 0-1.9 1.5-3.4 3.4-3.6C8.2 10.4 11 8 14.4 8c2.9 0 5.4 1.8 6.3 4.4.4-.1.8-.1 1.3-.1 3.3 0 6 2.5 6 5.4S25.3 23 22 23H8z" fill="#fffdf9" stroke="#2f5f8f" stroke-width="1.6"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Mistbox — 霧與盒子</title>
+  <rect width="32" height="32" rx="8" fill="#030609"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 7h10M8 11h9m4 0h3" stroke="#a5b3c2" stroke-width="2"/>
+    <path d="m7 17 9 4 9-4v7l-9 4-9-4z" fill="#121b25" stroke="#edf2f7" stroke-width="1.8"/>
+    <path d="M16 21v7" stroke="#edf2f7" stroke-width="1.8"/>
+    <path d="m7 17 4-2m10 0 4 2M14 15h4" stroke="#a5b3c2" stroke-width="1.8"/>
+  </g>
+</svg>
