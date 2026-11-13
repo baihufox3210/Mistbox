@@ -193,7 +193,8 @@ Firefox 會攔截 `Ctrl+Shift+P`（開啟隱私視窗），請改用 `F1` 或 `C
   - CLI：`docker compose exec app mistbox rag status`、`mistbox rag reindex`、`mistbox rag models`。
 - **換模型**：可選 `multilingual-e5-small`（原始 fp32，約 470 MB）、`multilingual-e5-base`（較準、較大）、`bge-small-zh`（中文為主）、`paraphrase-multilingual-minilm`（最小）。
   - 在 `.env` 設定 `MISTBOX_RAG_MODEL=<名稱>` 後執行 `docker compose up -d --build`，索引會自動重建。
-  - 設為 `off` 則完全停用，映像也不會包含模型。
+  - Docker 使用 Microsoft 官方 ONNX Runtime CPU 共享函式庫（固定版本與 SHA-256），避免 Rust `ort` 預編譯套件的 AVX2 需求；沒有 AVX2 的 x86 CPU 也可保留語意搜尋。更新 Dockerfile 後執行 `docker compose up -d --build` 重新建置。
+  - 設為 `off` 則完全停用，映像不會包含模型，伺服器也不會連結 ONNX Runtime。
 - **記憶體**（預設模型，實測）：
 
   | 狀態 | app 容器 |
