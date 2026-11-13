@@ -69,6 +69,10 @@ pub struct Config {
     #[arg(long, env = "MISTBOX_RAG_THREADS", default_value_t = 4, global = true)]
     pub rag_threads: usize,
 
+    /// Days before items in the recycle bin are permanently deleted (0 = never).
+    #[arg(long, env = "MISTBOX_TRASH_DAYS", default_value_t = 30, global = true)]
+    pub trash_days: i64,
+
     /// API requests allowed per minute per API key / session / IP.
     #[arg(long, env = "MISTBOX_API_RATE_PER_MIN", default_value_t = 1200, global = true)]
     pub api_rate_per_min: u32,
@@ -91,6 +95,7 @@ impl Config {
             login_attempts: 10,
             api_rate_per_min: 100_000,
             theme_dir: String::new(),
+            trash_days: 30,
             rag_model: "hash".into(),
             rag_model_dir: "./models".into(),
             rag_max_file_bytes: 256 * 1024,

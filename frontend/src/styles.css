@@ -284,6 +284,10 @@ html[data-theme='dark'] .brand { color: var(--accent-300); }
 .dirty-dot { color: var(--accent-500); font-size: 12px; line-height: 1; }
 .mobile-only { display: none; }
 .scrim { position: fixed; inset: 48px 0 0 0; background: rgba(5, 15, 25, .35); z-index: 9; }
+.toast-action { margin-left: 14px; border: 0; background: none; color: var(--accent-300); font-weight: 700; cursor: pointer; padding: 0; }
+html[data-theme='dark'] .toast-action { color: var(--accent-700); }
+.side-trash { width: 100%; border: 0; background: none; text-align: left; color: var(--text-2); margin-top: 6px; }
+.trash-table td.actions { white-space: nowrap; display: flex; gap: 6px; }
 .toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 10px 16px; border-radius: var(--radius); z-index: 60; max-width: 90vw; box-shadow: var(--shadow); }
 
 /* ---------- context menu ---------- */

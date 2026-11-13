@@ -6,7 +6,7 @@ import { ContextMenu, type MenuState } from '../components/ContextMenu';
 import { FileIcon } from '../components/FileIcon';
 import { Icon } from '../components/Icon';
 import { MOD } from '../components/Shell';
-import { filesFromDrop, UploadPanel } from '../components/Uploads';
+import { UploadPanel } from '../components/Uploads';
 import { languageFor } from '../fileTypes';
 import type { DriveModel } from '../state/useDrive';
 import { DND_TYPE, dropMove, emptyMenu, nodeMenu, ragLabel, useRagStatus, useTabHooks, useTree } from './shared';
@@ -118,7 +118,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
     setDropTarget(null);
     const internal = e.dataTransfer.getData(DND_TYPE);
     if (internal) return dropMove(m, [internal], dest);
-    m.actions.uploadFiles(dest, await filesFromDrop(e.dataTransfer));
+    m.actions.uploadDrop(dest, e.dataTransfer);
     tree.toggle(dest, true);
   };
 
@@ -142,6 +142,9 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
         <div className="pane-title">
           <span>檔案總管</span>
           <span className="spacer" />
+          <button className="btn ghost icon-only xs" onClick={() => m.setDialog({ t: 'trash' })} title="垃圾桶" aria-label="垃圾桶">
+            <Icon name="trash" size={14} />
+          </button>
           <button className="btn ghost icon-only xs" onClick={tree.collapseAll} title="全部收合" aria-label="全部收合">
             <Icon name="collapse" size={14} />
           </button>

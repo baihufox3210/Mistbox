@@ -356,8 +356,9 @@ async fn rename_move_delete_search() {
     // Delete folder with content; blob gets collected.
     let g = t.upload(&b, "g.txt", b"gone").await.json();
     let blob: String = sqlx::query_scalar("SELECT blob_id FROM nodes WHERE id = ?").bind(g["id"].as_str().unwrap()).fetch_one(&t.state.db).await.unwrap();
-    let r = t.admin(Method::DELETE, &format!("/api/v1/nodes/{a}"), None).await;
+    let r = t.admin(Method::DELETE, &format!("/api/v1/nodes/{a}?permanent=1"), None).await;
     assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json()["permanent"], true);
     assert_eq!(r.json()["stats"]["files"], 1);
     assert!(t.state.store.blob_path(&blob).exists());
     mistbox::nodes::run_blob_gc(&t.state.db, &t.state.store).await.unwrap();
@@ -613,4 +614,74 @@ async fn semantic_search_is_scoped_and_tracks_changes() {
     assert_eq!(st["indexed_files"], 2);
     assert_eq!(st["pending"], 0);
     assert_eq!(st["skipped"], 1);
+}
+
+#[tokio::test]
+async fn recycle_bin_hides_restores_and_purges() {
+    let t = T::new().await;
+    let docs = t.mkdir("root", "docs").await;
+    let sub = t.mkdir(&docs, "sub").await;
+    let f = t.upload(&sub, "plan.md", b"secret plan").await.json()["id"].as_str().unwrap().to_string();
+    let key = t.key(json!({"name":"k","permissions":{"list":true,"read":true,"write":true}})).await;
+
+    // Trash a folder: gone from listings, search, path access and API keys.
+    let r = t.admin(Method::DELETE, &format!("/api/v1/nodes/{sub}"), None).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json()["permanent"], false);
+    let names: Vec<String> = t.admin(Method::GET, &format!("/api/v1/nodes/{docs}/children"), None).await.json()["children"]
+        .as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap().to_string()).collect();
+    assert!(names.is_empty());
+    let root: Vec<String> = t.admin(Method::GET, "/api/v1/nodes/root/children", None).await.json()["children"]
+        .as_array().unwrap().iter().map(|c| c["id"].as_str().unwrap().to_string()).collect();
+    assert!(!root.contains(&"trash".to_string()), "bin folder never listed");
+    assert_eq!(t.admin(Method::GET, "/api/v1/search?q=plan", None).await.json()["results"].as_array().unwrap().len(), 0);
+    assert_eq!(t.admin(Method::GET, "/api/v1/fs/info?path=/docs/sub/plan.md", None).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(t.bearer(&key, Method::GET, &format!("/api/v1/nodes/{f}/content"), vec![]).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(t.bearer(&key, Method::GET, "/api/v1/nodes/trash/children", vec![]).await.status, StatusCode::NOT_FOUND);
+    assert_eq!(t.bearer(&key, Method::GET, "/api/v1/trash", vec![]).await.status, StatusCode::FORBIDDEN);
+    // Bytes are kept; nothing can be uploaded into the bin.
+    assert_eq!(t.admin(Method::GET, &format!("/api/v1/nodes/{f}/content"), None).await.body, b"secret plan");
+    assert_eq!(t.upload("trash", "x.txt", b"x").await.status, StatusCode::BAD_REQUEST);
+    // A new item may take the old name while the original is in the bin.
+    let again = t.mkdir(&docs, "sub").await;
+
+    let list = t.admin(Method::GET, "/api/v1/trash", None).await.json();
+    let item = &list["items"][0];
+    assert_eq!(item["name"], "sub");
+    assert_eq!(item["path"], "/docs/sub");
+    assert_eq!(item["stats"]["files"], 1);
+    assert!(item["purge_at"].is_string());
+
+    // Restore: name clash → "sub (1)", never overwrites.
+    let r = t.admin(Method::POST, &format!("/api/v1/trash/{sub}/restore"), None).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.json()["node"]["path"], "/docs/sub (1)");
+    assert_eq!(t.admin(Method::GET, "/api/v1/fs/download?path=/docs/sub%20(1)/plan.md", None).await.body, b"secret plan");
+    assert_eq!(t.bearer(&key, Method::GET, &format!("/api/v1/nodes/{f}/content"), vec![]).await.status, StatusCode::OK);
+
+    // Original parent gone → restored to the root.
+    t.admin(Method::DELETE, &format!("/api/v1/nodes/{f}"), None).await;
+    t.admin(Method::DELETE, &format!("/api/v1/nodes/{docs}?permanent=1"), None).await;
+    let r = t.admin(Method::POST, &format!("/api/v1/trash/{f}/restore"), None).await.json();
+    assert_eq!(r["node"]["path"], "/plan.md");
+    assert_eq!(r["restored_to_root"], true);
+    let _ = again;
+
+    // Keys may trash but not permanently delete.
+    assert_eq!(t.bearer(&key, Method::DELETE, &format!("/api/v1/nodes/{f}?permanent=1"), vec![]).await.status, StatusCode::FORBIDDEN);
+    assert_eq!(t.bearer(&key, Method::DELETE, &format!("/api/v1/nodes/{f}"), vec![]).await.status, StatusCode::OK);
+    // Deleting again from the bin is permanent; blobs are then collected.
+    let blob: String = sqlx::query_scalar("SELECT blob_id FROM nodes WHERE id = ?").bind(&f).fetch_one(&t.state.db).await.unwrap();
+    let r = t.admin(Method::DELETE, "/api/v1/trash", None).await;
+    assert_eq!(r.json()["deleted"], 1);
+    mistbox::nodes::run_blob_gc(&t.state.db, &t.state.store).await.unwrap();
+    assert!(!t.state.store.blob_path(&blob).exists());
+    assert_eq!(t.admin(Method::GET, "/api/v1/trash", None).await.json()["items"].as_array().unwrap().len(), 0);
+
+    // Expiry purge.
+    let g = t.upload("root", "old.txt", b"o").await.json()["id"].as_str().unwrap().to_string();
+    t.admin(Method::DELETE, &format!("/api/v1/nodes/{g}"), None).await;
+    sqlx::query("UPDATE trash SET trashed_at = 1").execute(&t.state.db).await.unwrap();
+    assert_eq!(mistbox::nodes::purge_trash(&t.state.db, 30).await.unwrap(), 1);
+    assert!(mistbox::nodes::get_opt(&t.state.db, &g).await.unwrap().is_none());
 }

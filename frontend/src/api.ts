@@ -49,6 +49,11 @@ export interface ApiKeyInfo {
   revoked_at: string | null;
 }
 
+export interface TrashItem extends NodeInfo {
+  trashed_at: string;
+  purge_at: string | null;
+}
+
 export interface UiSettings {
   background_url: string;
   background_dim: number;
@@ -155,7 +160,15 @@ export const api = {
   mkdir: (parent: string, name: string) => json<NodeInfo>('POST', `${V}/nodes/${q(parent)}/children`, { name }),
   update: (id: string, patch: { name?: string; parent_id?: string; sensitive?: boolean }) =>
     json<NodeInfo>('PATCH', `${V}/nodes/${q(id)}`, patch),
-  remove: (id: string) => json<{ deleted: string }>('DELETE', `${V}/nodes/${q(id)}`),
+  /** Move to the recycle bin (or delete permanently). */
+  remove: (id: string, permanent = false) =>
+    json<{ deleted: string; permanent: boolean }>('DELETE', `${V}/nodes/${q(id)}${permanent ? '?permanent=1' : ''}`),
+  trash: () => json<{ items: TrashItem[]; retention_days: number }>('GET', `${V}/trash`),
+  restore: (id: string) =>
+    json<{ node: NodeInfo; restored_to_root: boolean }>('POST', `${V}/trash/${q(id)}/restore`),
+  emptyTrash: () => json<{ deleted: number }>('DELETE', `${V}/trash`),
+  /** mkdir -p relative to the caller's root. */
+  mkdirPath: (path: string) => json<NodeInfo>('POST', `${V}/fs/mkdir?path=${q(path)}`),
   search: (term: string) => json<{ results: NodeInfo[] }>('GET', `${V}/search?q=${q(term)}&limit=200`),
   text: (id: string, encoding?: string, partial = false) =>
     json<TextPreview>(

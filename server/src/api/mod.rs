@@ -7,6 +7,7 @@ mod fs;
 mod keys;
 mod preview;
 mod rag;
+mod trash;
 pub mod settings;
 
 use std::time::Duration;
@@ -58,6 +59,8 @@ pub fn router(state: AppState) -> Router {
         .route("/nodes/{id}/latex", post(preview::latex_compile))
         .route("/nodes/{id}/latex/pdf", get(preview::latex_pdf))
         .route("/settings", get(settings::get).put(settings::put))
+        .route("/trash", get(trash::list).delete(trash::empty))
+        .route("/trash/{id}/restore", post(trash::restore))
         .route("/rag/status", get(rag::status))
         .route("/rag/search", get(rag::search))
         .route("/rag/context", get(rag::context))

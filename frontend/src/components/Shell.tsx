@@ -9,6 +9,7 @@ import { Icon } from './Icon';
 import KeysPage from './KeysPage';
 import { DeleteDialog, Modal, MoveDialog, PasswordDialog, PromptDialog } from './Modal';
 import SettingsDialog from './SettingsDialog';
+import TrashDialog from './TrashDialog';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl';
@@ -116,6 +117,7 @@ export function useCommands(
       { id: 'settings', label: '開啟設定（背景圖片、自訂 CSS、語意搜尋）', icon: 'gear', keywords: 'preferences background css', run: () => m.setDialog({ t: 'settings' }) },
       { id: 'reload-css', label: '重新載入自訂 CSS（theme/custom.css）', icon: 'refresh', keywords: 'custom css theme reload', run: () => (loadCustomCss(true), m.toast('已重新載入 custom.css')) },
       { id: 'refresh', label: '重新整理檔案清單', icon: 'refresh', keywords: 'reload refresh', run: () => m.bump() },
+      { id: 'trash', label: '開啟垃圾桶（還原已刪除的項目）', icon: 'trash', keywords: 'trash recycle bin restore 刪除 還原 回收', run: () => m.setDialog({ t: 'trash' }) },
       { id: 'go-root', label: '回到根目錄', icon: 'folder', keywords: 'home root', run: () => m.navigate('root') },
       { id: 'close-all', label: '關閉所有分頁', icon: 'close', keywords: 'close tabs', run: () => m.closeAll() },
       { id: 'keys', label: '管理 API Keys', icon: 'key', keywords: 'api token', run: () => m.setDialog({ t: 'keys' }) },
@@ -215,7 +217,16 @@ export function ShellOverlays({
           onClose={() => m.setPaletteMode(null)}
         />
       )}
-      {m.toastMsg && <div className="toast" role="status">{m.toastMsg}</div>}
+      {m.toastMsg && (
+        <div className="toast" role="status">
+          {m.toastMsg}
+          {m.toastAction && (
+            <button className="toast-action" onClick={() => (m.toastAction?.run(), m.toast(''))}>
+              {m.toastAction.label}
+            </button>
+          )}
+        </div>
+      )}
 
       {d?.t === 'newfile' && (
         <PromptDialog
@@ -253,7 +264,10 @@ export function ShellOverlays({
           }}
         />
       )}
-      {d?.t === 'delete' && <DeleteDialog items={d.items} onClose={close} onDone={() => m.actions.afterDelete(d.items.map((i) => i.id))} />}
+      {d?.t === 'delete' && (
+        <DeleteDialog items={d.items} onClose={close} onDone={(permanent) => m.actions.afterDelete(d.items.map((i) => i.id), permanent)} />
+      )}
+      {d?.t === 'trash' && <TrashDialog onClose={close} onChanged={(msg) => (m.bump(), msg && m.toast(msg))} />}
       {d?.t === 'move' && <MoveDialog items={d.items} onClose={close} onDone={m.bump} />}
       {d?.t === 'keys' && <KeysPage onClose={close} />}
       {d?.t === 'password' && <PasswordDialog onClose={close} />}

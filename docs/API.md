@@ -100,7 +100,7 @@ Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8080/api
 | POST/PUT | `/nodes/{id}/files?name=…` 或 `?path=a/b/c.txt` | write | 上傳到資料夾（`on_conflict`、`mtime`） |
 | GET | `/nodes/{id}/content[?inline=1]` | read | 下載；`inline=1` 只對安全的圖片、PDF、影音生效 |
 | PATCH | `/nodes/{id}` | write | `{"name":"新名稱"}`、`{"parent_id":"目的資料夾"}`；`sensitive` 只限管理者 |
-| DELETE | `/nodes/{id}` | write | 永久刪除（資料夾含所有內容），回傳統計 |
+| DELETE | `/nodes/{id}[?permanent=1]` | write | 移到垃圾桶（資料夾含所有內容），回傳 `{permanent, stats}`。`permanent=1` 或對垃圾桶內的項目執行時為永久刪除（只限管理者，API Key 回 403） |
 | GET | `/search?q=…&limit=100` | list | 檔名子字串搜尋，只搜尋授權範圍內 |
 | GET | `/nodes/{id}/text[?encoding=Big5][&partial=1]` | read | 文字預覽（自動偵測編碼；超過上限回 413，`partial=1` 只取開頭） |
 | GET | `/nodes/{id}/resolve?path=../img/a.png` | list 或 read | 以檔案所在資料夾為基準解析相對路徑 |
@@ -125,6 +125,9 @@ Base URL：`https://<你的網域>/api/v1`（本機：`http://127.0.0.1:8080/api
 | DELETE | `/keys/{id}` | 撤銷（保留紀錄） |
 | GET / PUT | `/settings` | 介面設定：`{"background_url","background_dim","background_blur"}`。背景網址只接受 https URL 或站內路徑，不可含引號、括號、空白 |
 | POST | `/rag/reindex` | 清除並在背景重建語意索引 |
+| GET | `/trash` | 垃圾桶內容：原名稱、原路徑、`trashed_at`、`purge_at` |
+| POST | `/trash/{id}/restore` | 還原到原位置（同名時自動編號；原資料夾不存在則還原到根目錄） |
+| DELETE | `/trash` | 清空垃圾桶（永久刪除） |
 
 `GET /health`：不需認證，回傳 `{"status":"ok"}`。
 

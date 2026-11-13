@@ -273,6 +273,13 @@ async fn serve(cfg: Config) -> anyhow::Result<()> {
                 if let Err(e) = nodes::run_blob_gc(&st.db, &st.store).await {
                     tracing::warn!(error = %e, "blob gc failed");
                 }
+                if st.cfg.trash_days > 0 {
+                    match nodes::purge_trash(&st.db, st.cfg.trash_days).await {
+                        Ok(n) if n > 0 => tracing::info!(items = n, "recycle bin: expired items deleted"),
+                        Err(e) => tracing::warn!(error = %e.message, "recycle bin purge failed"),
+                        _ => {}
+                    }
+                }
                 let _ = sqlx::query("DELETE FROM sessions WHERE expires_at <= ?")
                     .bind(mistbox::util::now())
                     .execute(&st.db)

@@ -7,7 +7,7 @@ import { ContextMenu, type MenuState } from '../components/ContextMenu';
 import { ErrorState } from '../components/ErrorState';
 import { FileIcon } from '../components/FileIcon';
 import { Icon } from '../components/Icon';
-import { filesFromDrop, UploadPanel } from '../components/Uploads';
+import { UploadPanel } from '../components/Uploads';
 import { previewKind, typeLabel } from '../fileTypes';
 import { formatDate, formatSize } from '../format';
 import type { DriveModel } from '../state/useDrive';
@@ -151,7 +151,7 @@ export default function DriveLayout({
       const ids = selected.has(internal) ? [...selected] : [internal];
       return dropMove(m, ids, dest);
     }
-    m.actions.uploadFiles(dest, await filesFromDrop(e.dataTransfer));
+    m.actions.uploadDrop(dest, e.dataTransfer);
   };
 
   const itemProps = (n: NodeInfo, i: number) => ({
@@ -197,6 +197,11 @@ export default function DriveLayout({
         </button>
         <nav className="side-tree" aria-label="資料夾">
           <SideNode m={m} tree={tree} node={{ id: 'root', name: '我的雲端' }} depth={0} onDrop={drop} dragOver={dragOver} setDragOver={setDragOver} onPick={() => setSideOpen(false)} />
+          <button className="side-row side-trash" onClick={() => (m.setDialog({ t: 'trash' }), setSideOpen(false))}>
+            <span className="twisty" />
+            <Icon name="trash" size={17} />
+            <span className="tree-name">垃圾桶</span>
+          </button>
         </nav>
         <div className="side-foot">
           {stats && (

@@ -150,13 +150,20 @@ export function UploadPanel({ u, embedded }: { u: Uploads; embedded?: boolean })
 }
 
 /** Collect files (recursively, for dropped folders) from a drop event. */
-export async function filesFromDrop(dt: DataTransfer): Promise<PendingFile[]> {
+export interface Dropped {
+  files: PendingFile[];
+  /** Relative paths of dropped folders that contain no files (created explicitly). */
+  emptyDirs: string[];
+}
+
+export async function filesFromDrop(dt: DataTransfer): Promise<Dropped> {
   const entries = Array.from(dt.items)
     .filter((i) => i.kind === 'file')
     .map((i) => i.webkitGetAsEntry?.())
     .filter((e): e is FileSystemEntry => !!e);
-  if (!entries.length) return Array.from(dt.files).map((file) => ({ file }));
+  if (!entries.length) return { files: Array.from(dt.files).map((file) => ({ file })), emptyDirs: [] };
   const out: PendingFile[] = [];
+  const emptyDirs: string[] = [];
   const walk = async (entry: FileSystemEntry, prefix: string): Promise<void> => {
     if (entry.isFile) {
       const file = await new Promise<File>((res, rej) => (entry as FileSystemFileEntry).file(res, rej));
@@ -165,13 +172,16 @@ export async function filesFromDrop(dt: DataTransfer): Promise<PendingFile[]> {
       const reader = (entry as FileSystemDirectoryEntry).createReader();
       const dir = prefix ? `${prefix}/${entry.name}` : entry.name;
       // readEntries returns batches; loop until empty.
+      let any = false;
       for (;;) {
         const batch = await new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
         if (!batch.length) break;
+        any = true;
         for (const e of batch) await walk(e, dir);
       }
+      if (!any) emptyDirs.push(dir);
     }
   };
   for (const e of entries) await walk(e, '');
-  return out;
+  return { files: out, emptyDirs };
 }

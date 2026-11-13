@@ -240,6 +240,16 @@ check "If-Match 正確時覆寫成功" test "$code" == 200
 code=$(spost -o /dev/null -w '%{http_code}' -X PUT -H "If-Match: \"$sha0\"" --data-binary 'stale' "$BASE/api/v1/nodes/$nid/content")
 check "舊版本 If-Match → 412，不覆蓋" bash -c "[[ $code == 412 && \$(sget '$BASE/api/v1/nodes/$nid/content') == '# 編輯後' ]]"
 
+section "垃圾桶"
+tid=$(spost --data-binary 'trash me' "$BASE/api/v1/fs/upload?path=/to-trash.txt" | jq -r .id)
+r=$(spost -X DELETE "$BASE/api/v1/nodes/$tid")
+check "刪除預設移到垃圾桶" bash -c "jq -e '.permanent==false' <<<'$r' >/dev/null && [[ \$(sget -o /dev/null -w '%{http_code}' '$BASE/api/v1/fs/info?path=/to-trash.txt') == 404 ]]"
+check "垃圾桶列出原位置" bash -c "sget '$BASE/api/v1/trash' | jq -e '.items|any(.path==\"/to-trash.txt\")' >/dev/null"
+spost -o /dev/null -X POST "$BASE/api/v1/trash/$tid/restore"
+check "還原後內容不變" bash -c "[[ \$(sget '$BASE/api/v1/fs/download?path=/to-trash.txt') == 'trash me' ]]"
+spost -o /dev/null -X DELETE "$BASE/api/v1/nodes/$tid?permanent=1"
+check "永久刪除" bash -c "[[ \$(sget -o /dev/null -w '%{http_code}' '$BASE/api/v1/nodes/$tid') == 404 ]]"
+
 section "語意搜尋（本地模型，容器內）"
 st=""
 for _ in $(seq 1 240); do

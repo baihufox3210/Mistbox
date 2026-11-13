@@ -125,10 +125,23 @@ export function PromptDialog({
   );
 }
 
-export function DeleteDialog({ items, onDone, onClose }: { items: NodeInfo[]; onDone: () => void; onClose: () => void }) {
+/** Delete = move to the recycle bin (undoable); optionally skip the bin. */
+export function DeleteDialog({
+  items,
+  onDone,
+  onClose,
+  inTrash = false,
+}: {
+  items: NodeInfo[];
+  onDone: (permanent: boolean) => void;
+  onClose: () => void;
+  /** Items are already in the recycle bin → deletion is permanent. */
+  inTrash?: boolean;
+}) {
   const [stats, setStats] = useState<{ files: number; dirs: number; bytes: number } | null>(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [permanent, setPermanent] = useState(inTrash);
   useEffect(() => {
     let cancelled = false;
     Promise.all(items.map((i) => (i.kind === 'dir' ? api.info(i.id, true).then((n) => n.stats!) : Promise.resolve({ files: 1, dirs: 0, bytes: i.size }))))
@@ -142,9 +155,15 @@ export function DeleteDialog({ items, onDone, onClose }: { items: NodeInfo[]; on
     };
   }, [items]);
   return (
-    <Modal title="永久刪除" onClose={onClose}>
+    <Modal title={permanent ? '永久刪除' : '移到垃圾桶'} onClose={onClose}>
       <p>
-        即將<strong>永久刪除</strong>下列 {items.length} 個項目，無法復原：
+        {permanent ? (
+          <>
+            即將<strong>永久刪除</strong>下列 {items.length} 個項目，<strong>無法復原</strong>：
+          </>
+        ) : (
+          <>下列 {items.length} 個項目會移到垃圾桶，可在垃圾桶中還原：</>
+        )}
       </p>
       <ul className="delete-list">
         {items.slice(0, 8).map((i) => (
@@ -157,26 +176,31 @@ export function DeleteDialog({ items, onDone, onClose }: { items: NodeInfo[]; on
       <p className="muted">
         {stats ? `共 ${stats.files} 個檔案、${Math.max(0, stats.dirs)} 個資料夾，${formatSize(stats.bytes)}。` : '計算內容中…'}
       </p>
+      {!inTrash && (
+        <label className="check">
+          <input type="checkbox" checked={permanent} onChange={(e) => setPermanent(e.target.checked)} /> 略過垃圾桶，直接永久刪除
+        </label>
+      )}
       {err && <p className="form-error" role="alert">{err}</p>}
       <div className="modal-actions">
         <button className="btn" onClick={onClose} data-autofocus>取消</button>
         <button
-          className="btn danger"
+          className={`btn ${permanent ? 'danger' : 'primary'}`}
           disabled={busy}
           onClick={async () => {
             setBusy(true);
             try {
-              for (const i of items) await api.remove(i.id);
-              onDone();
+              for (const i of items) await api.remove(i.id, permanent && !inTrash);
+              onDone(permanent);
               onClose();
             } catch (e) {
               setErr(errorText(e));
               setBusy(false);
-              onDone();
+              onDone(permanent);
             }
           }}
         >
-          <Icon name="trash" /> 永久刪除
+          <Icon name="trash" /> {permanent ? '永久刪除' : '移到垃圾桶'}
         </button>
       </div>
     </Modal>

@@ -2,7 +2,7 @@
 // state, dialogs, uploads and every file operation.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, contentUrl, errorText, type Listing, type NodeInfo } from '../api';
-import { useUploads, type PendingFile } from '../components/Uploads';
+import { filesFromDrop, useUploads, type PendingFile } from '../components/Uploads';
 
 export interface Tab {
   node: NodeInfo;
@@ -23,6 +23,7 @@ export type Dialog =
   | { t: 'password' }
   | { t: 'settings'; section?: string }
   | { t: 'confirm-close'; id: string }
+  | { t: 'trash' }
   | null;
 
 function readUrl() {
@@ -41,18 +42,22 @@ export function useDrive() {
   const [active, setActive] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [toastMsg, setToastState] = useState('');
+  const [toastAction, setToastAction] = useState<{ label: string; run: () => void } | null>(null);
   const [paletteMode, setPaletteMode] = useState<null | 'all' | 'files' | 'semantic'>(null);
   const uploadTarget = useRef<string>('root');
   const fileInput = useRef<HTMLInputElement>(null);
   const dirInput = useRef<HTMLInputElement>(null);
   const savers = useRef(new Map<string, () => Promise<void>>());
 
-  const toast = useCallback((msg: string) => setToastState(msg), []);
+  const toast = useCallback((msg: string, action?: { label: string; run: () => void }) => {
+    setToastState(msg);
+    setToastAction(action ?? null);
+  }, []);
   useEffect(() => {
     if (!toastMsg) return;
-    const t = setTimeout(() => setToastState(''), 4000);
+    const t = setTimeout(() => (setToastState(''), setToastAction(null)), toastAction ? 8000 : 4000);
     return () => clearTimeout(t);
-  }, [toastMsg]);
+  }, [toastMsg, toastAction]);
 
   const bump = useCallback(() => setVersion((v) => v + 1), []);
 
@@ -184,6 +189,16 @@ export function useDrive() {
       if (!files.length) return;
       uploads.enqueue(files, parent, await pathOf(parent));
     },
+    /** Drop from the OS: files (with folder structure) plus empty folders. */
+    uploadDrop: async (parent: string, dt: DataTransfer) => {
+      const { files, emptyDirs } = await filesFromDrop(dt);
+      const base = await pathOf(parent);
+      for (const d of emptyDirs) {
+        await api.mkdirPath(`${base === '/' ? '' : base}/${d}`).catch((e) => toast(errorText(e)));
+      }
+      if (emptyDirs.length) bump();
+      if (files.length) uploads.enqueue(files, parent, base);
+    },
     rename: (item: NodeInfo) => setDialog({ t: 'rename', item }),
     move: (items: NodeInfo[]) => items.length && setDialog({ t: 'move', items }),
     remove: (items: NodeInfo[]) => items.length && setDialog({ t: 'delete', items }),
@@ -218,11 +233,20 @@ export function useDrive() {
       bump();
       return n;
     },
-    afterDelete: (ids: string[]) => {
+    afterDelete: (ids: string[], permanent = false) => {
       const set = new Set(ids);
       setTabs((t) => t.filter((x) => !set.has(x.node.id)));
       if (activeRef.current && set.has(activeRef.current)) setActive(null);
       bump();
+      if (!permanent)
+        toast(`已將 ${ids.length} 個項目移到垃圾桶`, {
+          label: '復原',
+          run: async () => {
+            for (const id of ids) await api.restore(id).catch(() => {});
+            bump();
+            toast('已復原');
+          },
+        });
     },
     afterRename: (n: NodeInfo) => {
       updateNode(n);
@@ -255,6 +279,7 @@ export function useDrive() {
     dialog,
     setDialog,
     toastMsg,
+    toastAction,
     toast,
     paletteMode,
     setPaletteMode,

@@ -246,13 +246,35 @@ pub async fn update(
     Ok(Json(view_with_path(&state, &p, &n).await?))
 }
 
-pub async fn remove(State(state): State<AppState>, p: Principal, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+#[derive(Deserialize)]
+pub struct RemoveQuery {
+    /// Skip the recycle bin (admin only). Items already in the bin are always deleted permanently.
+    #[serde(default, deserialize_with = "crate::util::flag")]
+    permanent: bool,
+}
+
+/// Delete = move to the recycle bin. Permanent deletion only for items
+/// already in the bin or with `?permanent=1` (admin sessions only).
+pub async fn remove(
+    State(state): State<AppState>,
+    p: Principal,
+    Path(id): Path<String>,
+    Query(q): Query<RemoveQuery>,
+) -> ApiResult<Json<Value>> {
     let n = nodes::get(&state.db, &resolve_alias(&p, &id)).await?;
     authz::require_modify(&state, &p, &n).await?;
-    let stats = nodes::delete(&state.db, &n).await?;
-    tracing::info!(node = %n.id, files = stats.files, "deleted");
+    let in_trash = nodes::in_trash(&state.db, &n.id).await?;
+    if (q.permanent || in_trash) && matches!(p, Principal::Key(_)) {
+        return Err(ApiError::forbidden("API Key 只能把項目移到垃圾桶，不能永久刪除"));
+    }
+    let (stats, permanent) = if q.permanent || in_trash {
+        (nodes::delete(&state.db, &n).await?, true)
+    } else {
+        (nodes::trash(&state.db, &n).await?, false)
+    };
+    tracing::info!(node = %n.id, files = stats.files, permanent, "deleted");
     state.poke_rag();
-    Ok(Json(json!({ "deleted": n.id, "stats": stats })))
+    Ok(Json(json!({ "deleted": n.id, "permanent": permanent, "stats": stats })))
 }
 
 #[derive(Deserialize)]

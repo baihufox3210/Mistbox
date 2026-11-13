@@ -33,6 +33,16 @@ use crate::{
     util::now,
 };
 
+/// Prefix a query with a CTE `t(id)` = the recycle bin subtree.
+macro_rules! const_format_trash {
+    ($sql:literal) => {
+        concat!(
+            "WITH RECURSIVE t(id) AS (SELECT 'trash' UNION ALL SELECT n2.id FROM nodes n2 JOIN t ON n2.parent_id = t.id) ",
+            $sql
+        )
+    };
+}
+
 // ------------------------------------------------------------------ embedders
 
 pub trait Embedder: Send + Sync {
@@ -421,6 +431,9 @@ impl Rag {
         // Files that became sensitive are dropped from the index.
         sqlx::query("DELETE FROM rag_chunks WHERE node_id IN (SELECT id FROM nodes WHERE sensitive = 1)").execute(db).await?;
         sqlx::query("DELETE FROM rag_docs WHERE node_id IN (SELECT id FROM nodes WHERE sensitive = 1)").execute(db).await?;
+        // …and so are items in the recycle bin (re-indexed when restored).
+        sqlx::query(const_format_trash!("DELETE FROM rag_chunks WHERE node_id IN (SELECT id FROM t)")).execute(db).await?;
+        sqlx::query(const_format_trash!("DELETE FROM rag_docs WHERE node_id IN (SELECT id FROM t)")).execute(db).await?;
         // Drop in-memory entries for deleted / sensitive / stale docs.
         let live: HashSet<String> =
             sqlx::query_scalar("SELECT node_id FROM rag_docs WHERE status = 'indexed' AND model = ?")
@@ -433,12 +446,12 @@ impl Rag {
 
         let mut done = 0;
         loop {
-            let batch: Vec<Node> = sqlx::query_as(
+            let batch: Vec<Node> = sqlx::query_as(const_format_trash!(
                 "SELECT n.* FROM nodes n LEFT JOIN rag_docs d ON d.node_id = n.id
-                 WHERE n.kind = 'file' AND n.sensitive = 0
+                 WHERE n.kind = 'file' AND n.sensitive = 0 AND n.id NOT IN (SELECT id FROM t)
                    AND (d.node_id IS NULL OR d.sha256 <> n.sha256 OR d.model <> ?)
-                 ORDER BY n.modified_at DESC LIMIT 20",
-            )
+                 ORDER BY n.modified_at DESC LIMIT 20"
+            ))
             .bind(&model)
             .fetch_all(db)
             .await?;
@@ -546,7 +559,12 @@ impl Rag {
             }
             if !allowed.contains_key(&node_id) {
                 let n = match nodes::get_opt(&state.db, &node_id).await {
-                    Ok(Some(n)) if authz::require(state, p, &n, Perm::Read).await.is_ok() => Some(n),
+                    Ok(Some(n))
+                        if authz::require(state, p, &n, Perm::Read).await.is_ok()
+                            && !nodes::in_trash(&state.db, &n.id).await.unwrap_or(true) =>
+                    {
+                        Some(n)
+                    }
                     _ => None,
                 };
                 allowed.insert(node_id.clone(), n);
@@ -582,10 +600,11 @@ impl Rag {
         .bind(&model)
         .fetch_one(db)
         .await?;
-        let pending: i64 = sqlx::query_scalar(
+        let pending: i64 = sqlx::query_scalar(const_format_trash!(
             "SELECT COUNT(*) FROM nodes n LEFT JOIN rag_docs d ON d.node_id = n.id
-             WHERE n.kind = 'file' AND n.sensitive = 0 AND (d.node_id IS NULL OR d.sha256 <> n.sha256 OR d.model <> ?)",
-        )
+             WHERE n.kind = 'file' AND n.sensitive = 0 AND n.id NOT IN (SELECT id FROM t)
+               AND (d.node_id IS NULL OR d.sha256 <> n.sha256 OR d.model <> ?)"
+        ))
         .bind(&model)
         .fetch_one(db)
         .await?;

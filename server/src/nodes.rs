@@ -9,6 +9,8 @@ use crate::{
 };
 
 pub const ROOT_ID: &str = "root";
+/// Hidden system folder holding trashed items (see migrations/0003_trash.sql).
+pub const TRASH_ID: &str = "trash";
 
 #[derive(sqlx::FromRow, Clone, Debug)]
 pub struct Node {
@@ -145,7 +147,7 @@ pub async fn child_by_name(db: &SqlitePool, parent: &str, name: &str) -> ApiResu
 
 pub async fn children(db: &SqlitePool, parent: &str) -> ApiResult<Vec<Node>> {
     Ok(sqlx::query_as::<_, Node>(
-        "SELECT * FROM nodes WHERE parent_id = ? ORDER BY kind = 'file', name COLLATE NOCASE, name",
+        "SELECT * FROM nodes WHERE parent_id = ? AND id <> 'trash' ORDER BY kind = 'file', name COLLATE NOCASE, name",
     )
     .bind(parent)
     .fetch_all(db)
@@ -227,8 +229,21 @@ pub async fn resolve_rel(db: &SqlitePool, base_dir: &str, rel: &str, floor: &str
     get(db, chain.last().unwrap()).await
 }
 
+/// True if `id` is the recycle bin or inside it.
+pub async fn in_trash(db: &SqlitePool, id: &str) -> ApiResult<bool> {
+    is_within(db, id, TRASH_ID).await
+}
+
+async fn writable_parent(db: &SqlitePool, parent: &Node) -> ApiResult<()> {
+    if in_trash(db, &parent.id).await? {
+        return Err(ApiError::bad_request("無法在垃圾桶內建立或移入項目，請先還原"));
+    }
+    Ok(())
+}
+
 pub async fn create_dir(db: &SqlitePool, parent: &Node, name: &str) -> ApiResult<Node> {
     validate_name(name)?;
+    writable_parent(db, parent).await?;
     if !parent.is_dir() {
         return Err(ApiError::bad_request("目標不是資料夾"));
     }
@@ -287,6 +302,7 @@ pub struct NewFile<'a> {
 /// Insert a committed blob as a file node. Never overwrites an existing entry.
 pub async fn insert_file(db: &SqlitePool, parent: &Node, f: NewFile<'_>, policy: ConflictPolicy) -> ApiResult<Node> {
     validate_name(f.name)?;
+    writable_parent(db, parent).await?;
     let id = new_id();
     let t = now();
     for attempt in 0..1000u32 {
@@ -322,8 +338,11 @@ pub async fn insert_file(db: &SqlitePool, parent: &Node, f: NewFile<'_>, policy:
 
 pub async fn rename(db: &SqlitePool, node: &Node, new_name: &str) -> ApiResult<Node> {
     validate_name(new_name)?;
-    if node.id == ROOT_ID {
+    if node.id == ROOT_ID || node.id == TRASH_ID {
         return Err(ApiError::bad_request("無法重新命名根目錄"));
+    }
+    if in_trash(db, &node.id).await? {
+        return Err(ApiError::bad_request("垃圾桶內的項目請先還原再重新命名"));
     }
     let res = sqlx::query("UPDATE nodes SET name = ?, modified_at = ? WHERE id = ?")
         .bind(new_name)
@@ -339,9 +358,13 @@ pub async fn rename(db: &SqlitePool, node: &Node, new_name: &str) -> ApiResult<N
 }
 
 pub async fn move_node(db: &SqlitePool, node: &Node, dest: &Node) -> ApiResult<Node> {
-    if node.id == ROOT_ID {
+    if node.id == ROOT_ID || node.id == TRASH_ID {
         return Err(ApiError::bad_request("無法移動根目錄"));
     }
+    if in_trash(db, &node.id).await? {
+        return Err(ApiError::bad_request("垃圾桶內的項目請使用「還原」"));
+    }
+    writable_parent(db, dest).await?;
     if !dest.is_dir() {
         return Err(ApiError::bad_request("目標不是資料夾"));
     }
@@ -386,7 +409,7 @@ pub async fn subtree_stats(db: &SqlitePool, id: &str) -> ApiResult<SubtreeStats>
 
 /// Delete a node and its subtree. Blobs are queued for GC in the same transaction.
 pub async fn delete(db: &SqlitePool, node: &Node) -> ApiResult<SubtreeStats> {
-    if node.id == ROOT_ID {
+    if node.id == ROOT_ID || node.id == TRASH_ID {
         return Err(ApiError::bad_request("無法刪除根目錄"));
     }
     let stats = subtree_stats(db, &node.id).await?;
@@ -420,7 +443,7 @@ pub async fn search(db: &SqlitePool, q: &str, within: &str, limit: i64) -> ApiRe
     Ok(sqlx::query_as::<_, Node>(
         "WITH RECURSIVE sub(id) AS (
              SELECT id FROM nodes WHERE id = ?
-             UNION ALL SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id
+             UNION ALL SELECT n.id FROM nodes n JOIN sub ON n.parent_id = sub.id WHERE n.id <> 'trash'
          )
          SELECT nodes.* FROM nodes JOIN sub USING (id)
          WHERE nodes.id <> ? AND nodes.name LIKE ? ESCAPE '\\'
@@ -451,6 +474,107 @@ pub async fn run_blob_gc(db: &SqlitePool, store: &crate::storage::Store) -> anyh
     tx.commit().await?;
     for id in &ids {
         store.remove_blob(id).await;
+    }
+    Ok(ids.len())
+}
+
+// ------------------------------------------------------------------- trash
+
+#[derive(sqlx::FromRow, Clone, Debug)]
+pub struct TrashEntry {
+    pub node_id: String,
+    pub original_parent_id: String,
+    pub original_name: String,
+    pub original_path: String,
+    pub trashed_at: i64,
+}
+
+/// Move a node (and implicitly its subtree) to the recycle bin.
+pub async fn trash(db: &SqlitePool, node: &Node) -> ApiResult<SubtreeStats> {
+    if node.id == ROOT_ID || node.id == TRASH_ID {
+        return Err(ApiError::bad_request("無法刪除根目錄"));
+    }
+    if in_trash(db, &node.id).await? {
+        return Err(ApiError::bad_request("項目已在垃圾桶中"));
+    }
+    let stats = subtree_stats(db, &node.id).await?;
+    let path = path_of(db, &node.id, ROOT_ID).await?;
+    let mut tx = db.begin().await?;
+    sqlx::query(
+        "INSERT INTO trash (node_id, original_parent_id, original_name, original_path, trashed_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&node.id)
+    .bind(node.parent_id.as_deref().unwrap_or(ROOT_ID))
+    .bind(&node.name)
+    .bind(&path)
+    .bind(now())
+    .execute(&mut *tx)
+    .await?;
+    // Inside the bin the node is named by its unique id, so names never collide.
+    sqlx::query("UPDATE nodes SET parent_id = ?, name = ? WHERE id = ?")
+        .bind(TRASH_ID)
+        .bind(&node.id)
+        .bind(&node.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(stats)
+}
+
+pub async fn trash_entries(db: &SqlitePool) -> ApiResult<Vec<(TrashEntry, Node)>> {
+    let entries: Vec<TrashEntry> = sqlx::query_as("SELECT * FROM trash ORDER BY trashed_at DESC").fetch_all(db).await?;
+    let mut out = Vec::with_capacity(entries.len());
+    for e in entries {
+        if let Some(n) = get_opt(db, &e.node_id).await? {
+            out.push((e, n));
+        }
+    }
+    Ok(out)
+}
+
+/// Restore to the original folder (or the root if it no longer exists);
+/// a name clash yields "name (n).ext" — nothing is overwritten.
+pub async fn restore(db: &SqlitePool, node_id: &str) -> ApiResult<(Node, bool)> {
+    let e: TrashEntry = sqlx::query_as("SELECT * FROM trash WHERE node_id = ?")
+        .bind(node_id)
+        .fetch_optional(db)
+        .await?
+        .ok_or_else(ApiError::not_found)?;
+    let parent = match get_opt(db, &e.original_parent_id).await? {
+        Some(p) if p.is_dir() && !in_trash(db, &p.id).await? => p,
+        _ => get(db, ROOT_ID).await?,
+    };
+    let to_root = parent.id != e.original_parent_id;
+    for attempt in 0..1000u32 {
+        let name = if attempt == 0 { e.original_name.clone() } else { numbered_name(&e.original_name, attempt) };
+        let mut tx = db.begin().await?;
+        let res = sqlx::query("UPDATE nodes SET parent_id = ?, name = ? WHERE id = ?")
+            .bind(&parent.id)
+            .bind(&name)
+            .bind(node_id)
+            .execute(&mut *tx)
+            .await;
+        match res {
+            Ok(_) => {
+                sqlx::query("DELETE FROM trash WHERE node_id = ?").bind(node_id).execute(&mut *tx).await?;
+                tx.commit().await?;
+                return Ok((get(db, node_id).await?, to_root));
+            }
+            Err(err) if is_unique_violation(&err) => continue,
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Err(ApiError::conflict("無法產生不重複的檔名"))
+}
+
+/// Permanently delete trash entries older than `days` (0 = everything).
+pub async fn purge_trash(db: &SqlitePool, days: i64) -> ApiResult<usize> {
+    let cutoff = if days == 0 { i64::MAX } else { now() - days * 86_400 };
+    let ids: Vec<String> = sqlx::query_scalar("SELECT node_id FROM trash WHERE trashed_at <= ?").bind(cutoff).fetch_all(db).await?;
+    for id in &ids {
+        if let Some(n) = get_opt(db, id).await? {
+            delete(db, &n).await?;
+        }
     }
     Ok(ids.len())
 }

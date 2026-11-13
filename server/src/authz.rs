@@ -38,7 +38,9 @@ pub async fn visible(state: &AppState, p: &Principal, node: &Node) -> ApiResult<
             if node.sensitive && !k.allow_sensitive {
                 return Ok(false);
             }
-            nodes::is_within(&state.db, &node.id, &k.scope_node_id).await
+            // API keys never see the recycle bin.
+            Ok(nodes::is_within(&state.db, &node.id, &k.scope_node_id).await?
+                && !nodes::in_trash(&state.db, &node.id).await?)
         }
     }
 }
