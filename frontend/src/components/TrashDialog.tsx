@@ -34,9 +34,7 @@ export default function TrashDialog({ onClose, onChanged }: { onClose: () => voi
   return (
     <Modal title="垃圾桶" onClose={onClose} wide>
       <div className="row between">
-        <p className="muted small">
-          刪除的項目會先移到這裡{days > 0 ? `，${days} 天後自動永久刪除` : '，不會自動清除'}。還原時若原位置已有同名項目，會自動加上編號，不會覆寫。
-        </p>
+        <span className="muted small">{days > 0 ? `${days} 天後自動永久刪除` : '保留至手動清除'}</span>
         <button className="btn danger" disabled={!items?.length} onClick={() => setConfirm('all')}>
           <Icon name="trash" /> 清空垃圾桶
         </button>

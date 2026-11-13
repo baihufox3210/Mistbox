@@ -85,7 +85,7 @@ export default function RuleNoteButton({ m, target, onOpened }: { m: DriveModel;
         e.stopPropagation();
         if (notes && (await openOrCreate(m, target, notes))) onOpened?.();
       }}
-      title={has ? notes!.map((n) => n.path).join('\n') : `在 ${notePath(target)} 建立筆記（含 ${target.kind === 'rule' ? 'rules' : 'known'}: [${target.id}] 標註）`}
+      title={has ? '開啟相關筆記' : '新增相關筆記'}
     >
       <Icon name={has ? 'file' : 'filePlus'} size={13} /> {has ? `開啟筆記${notes!.length > 1 ? `（${notes!.length}）` : ''}` : '新增筆記'}
     </button>

@@ -142,7 +142,6 @@ function Login({ onIn, reason }: { onIn: (u: string) => void; reason?: string })
         <button className="btn primary block" disabled={busy}>
           {busy ? '登入中…' : '登入'}
         </button>
-        <p className="muted small">尚未建立帳號？請由管理者在伺服器上執行 <code>mistbox admin create</code>。</p>
       </form>
     </main>
   );

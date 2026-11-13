@@ -16,14 +16,19 @@ export function Modal({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     const first = ref.current?.querySelector<HTMLElement>('[data-autofocus], input, select, textarea, button.primary, button');
     first?.focus();
     const onKey = (e: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (dialogs[dialogs.length - 1] !== ref.current) return;
       if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        closeRef.current();
       }
       if (e.key === 'Tab' && ref.current) {
         // Simple focus trap.
@@ -46,7 +51,7 @@ export function Modal({
       window.removeEventListener('keydown', onKey, true);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} ref={ref}>
@@ -287,7 +292,7 @@ export function MoveDialog({ items, onDone, onClose }: { items: NodeInfo[]; onDo
   const [busy, setBusy] = useState(false);
   return (
     <Modal title={`移動 ${items.length} 個項目`} onClose={onClose}>
-      <p className="muted">選擇目標資料夾（不能移入自己或子資料夾）：</p>
+      <p className="muted">選擇目標資料夾</p>
       <NodePicker value={dest?.id ?? ''} onChange={(n) => setDest(n)} disabledIds={items.filter((i) => i.kind === 'dir').map((i) => i.id)} />
       <p>目標：<strong>{dest?.path ?? '尚未選擇'}</strong></p>
       {err && <p className="form-error" role="alert">{err}</p>}

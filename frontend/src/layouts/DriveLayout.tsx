@@ -224,7 +224,7 @@ export default function DriveLayout({
             </div>
           )}
           {caps.admin && (
-            <button className="side-stat link" onClick={() => m.setDialog({ t: 'settings' })}>
+            <button className="side-stat link" onClick={() => m.setDialog({ t: 'settings', section: 'system' })}>
               <Icon name="sparkle" size={14} /> {ragLabel(rag)}
             </button>
           )}
@@ -348,7 +348,10 @@ export default function DriveLayout({
             <div className="state empty">
               <FileIcon name="" kind="dir" size={72} />
               <p>這個資料夾是空的</p>
-              {caps.write && <p className="muted">把檔案或資料夾拖放到這裡上傳、按右鍵新增，或雙擊空白處建立檔案。</p>}
+              {caps.write && <div className="empty-actions">
+                <button className="btn primary" onClick={() => m.actions.newFile(m.dirId)}><Icon name="filePlus" />新增檔案</button>
+                <button className="btn" onClick={() => m.actions.upload(m.dirId)}><Icon name="upload" />上傳檔案</button>
+              </div>}
             </div>
           ) : view === 'grid' ? (
             <>

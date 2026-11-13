@@ -92,7 +92,7 @@ export default function ProblemsPanel({ m, active, onClose }: { m: DriveModel; a
       </div>
       <div className="problems-body">
         {scope === 'file' && !active ? (
-          <div className="state small muted">沒有開啟的檔案。切到「整個雲端」查看所有檔案。</div>
+          <div className="state small muted">尚未開啟檔案</div>
         ) : tab === 'problems' ? (
           scope === 'file' ? (
             <FileProblems m={m} node={active!} rules={rules} />
@@ -216,7 +216,7 @@ function Duplicates({ m, nodeId, version, sha }: { m: DriveModel; nodeId?: strin
   }, [nodeId, version, sha]);
   if (err) return <div className="state small muted">{err}</div>;
   if (!list) return <div className="state small"><span className="spinner tiny" /> 比對中…</div>;
-  if (list.length === 0) return <div className="state small muted">沒有找到重複的程式碼（至少約 50 個語彙單元才算）。</div>;
+  if (list.length === 0) return <div className="state small muted">沒有找到重複程式碼</div>;
   return (
     <ul className="dup-list">
       {list.map((d, i) => (

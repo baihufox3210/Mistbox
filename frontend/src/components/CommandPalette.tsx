@@ -196,11 +196,6 @@ export default function CommandPalette({
           />
           {busy && <span className="spinner tiny" />}
         </div>
-        {semantic && (
-          <div className="palette-hint">
-            語意搜尋：以本地向量模型比對檔案內容（不送出到任何外部服務）。結果依權限過濾，點選會跳到對應行。
-          </div>
-        )}
         {err && <div className="palette-err">{err}</div>}
         <ul className="palette-list" id="palette-list" role="listbox" ref={list}>
           {items.map((it, i) => (

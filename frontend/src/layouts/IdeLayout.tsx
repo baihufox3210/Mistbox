@@ -210,9 +210,9 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
             </div>
           )}
           {Array.isArray(rootList) && rootList.length === 0 && (
-            <div className="tree-empty" onDoubleClick={() => m.actions.newFile('root')}>
+            <div className="tree-empty">
               <p>雲端是空的</p>
-              <p className="muted small">雙擊這裡新增檔案，或把檔案拖進來上傳。</p>
+              <button className="btn ghost sm" onClick={() => m.actions.newFile('root')}><Icon name="filePlus" />新增檔案</button>
             </div>
           )}
           {rows.map(({ node: n, depth }) => {
@@ -322,7 +322,7 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
           </button>
         )}
         {activeTab && activeTab.kind !== 'diagnose' && <span className="sb-item">{languageFor(activeTab.node.name)}</span>}
-        <button className="sb-item sb-btn" onClick={() => m.setDialog({ t: 'settings' })} title="語意搜尋狀態">
+        <button className="sb-item sb-btn" onClick={() => m.setDialog({ t: 'settings', section: 'system' })} title="搜尋狀態">
           <Icon name="sparkle" size={12} /> {ragLabel(rag)}
         </button>
         <button className="sb-item sb-btn" onClick={() => m.setPaletteMode('all')}>
@@ -337,14 +337,13 @@ export default function IdeLayout({ m, sideOpen, setSideOpen, targetRef }: {
 function Welcome({ m, target }: { m: DriveModel; target: () => string }) {
   return (
     <div className="welcome" onDoubleClick={() => m.actions.newFile(target())}>
-      <h2>Mistbox</h2>
-      <p className="muted">在左側選擇檔案開啟；文字與程式碼可直接編輯並以 {MOD}+S 儲存。</p>
+      <h2>工作區</h2>
       <div className="welcome-grid">
         <button className="welcome-act" onClick={() => m.actions.newFile(target())}>
-          <Icon name="filePlus" /> 新增檔案 <kbd>雙擊空白處</kbd>
+          <Icon name="filePlus" /> 新增檔案
         </button>
         <button className="welcome-act" onClick={() => m.actions.upload(target())}>
-          <Icon name="upload" /> 上傳檔案 <kbd>拖放</kbd>
+          <Icon name="upload" /> 上傳檔案
         </button>
         <button className="welcome-act" onClick={() => m.setPaletteMode('all')}>
           <Icon name="command" /> 指令面板 <kbd>{MOD}+Shift+P</kbd>
@@ -356,7 +355,7 @@ function Welcome({ m, target }: { m: DriveModel; target: () => string }) {
           <Icon name="sparkle" /> 語意搜尋 <kbd>{MOD}+Shift+F</kbd>
         </button>
         <button className="welcome-act" onClick={() => m.setDialog({ t: 'settings' })}>
-          <Icon name="gear" /> 主題、背景與自訂 CSS
+          <Icon name="gear" /> 外觀設定
         </button>
       </div>
     </div>

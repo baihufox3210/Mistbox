@@ -147,8 +147,8 @@ export function useRagStatus(enabled = true) {
 export function ragLabel(s: RagStatus | null): string {
   if (!s) return '';
   if (!s.enabled) return '語意搜尋停用';
-  if (s.state === 'error') return '語意搜尋：模型錯誤';
-  if (s.state === 'loading') return '語意搜尋：載入模型…';
+  if (s.state === 'error') return '語意搜尋錯誤';
+  if (s.state === 'loading') return '語意搜尋載入中…';
   if ((s.pending ?? 0) > 0) return `語意索引中（剩 ${s.pending}）`;
   return `語意索引 ${s.indexed_files} 檔`;
 }

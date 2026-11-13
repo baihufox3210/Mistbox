@@ -136,7 +136,6 @@ function CompileError({ error, missing }: { error: ApiError | Error; missing?: s
           <pre className="latex-log">{log}</pre>
         </details>
       )}
-      <p className="muted small">原始碼仍可在左側／「原始碼」分頁檢視。支援的套件與限制請見 README「LaTeX」。</p>
     </div>
   );
 }

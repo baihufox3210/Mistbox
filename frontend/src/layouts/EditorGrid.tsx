@@ -425,7 +425,7 @@ function EditorGroup({
         ) : (
           <div className="egroup-empty">
             <p>空的編輯器群組</p>
-            <p className="muted small">從檔案總管點選檔案在這裡開啟，或把分頁、檔案拖曳進來。</p>
+            <button className="btn ghost sm" onClick={() => m.setPaletteMode('files')}><Icon name="search" />開啟檔案</button>
           </div>
         )}
         {drop && <div className={`eg-drop ${drop}`} />}

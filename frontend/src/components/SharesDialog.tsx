@@ -69,11 +69,6 @@ export default function SharesDialog({ node, onClose, toast }: { node?: NodeInfo
       {node && (created ? <NewLink link={created} onDone={() => setCreated(null)} /> : <CreateShare node={node} onCreated={(l) => (setCreated(l), load())} />)}
 
       {node && <h3 className="share-sub">這個項目的分享連結</h3>}
-      {!node && (
-        <p className="muted small">
-          在檔案或資料夾上按右鍵 →「分享連結…」即可建立。拿到連結的人不需要登入，只能看到被分享的項目（資料夾含所有子項目），永遠看不到敏感檔與垃圾桶。
-        </p>
-      )}
       {error && (
         <div className="state error">
           {error} <button className="btn sm" onClick={load}>重試</button>
@@ -103,7 +98,6 @@ export default function SharesDialog({ node, onClose, toast }: { node?: NodeInfo
           </table>
         </div>
       )}
-      <p className="muted small">完整連結含有密鑰，只在建立時顯示一次；伺服器只保存雜湊值。要再分享給別人，請建立新的連結。</p>
 
       {confirmDel && (
         <Modal title="刪除分享連結" onClose={() => setConfirmDel(null)}>
@@ -207,7 +201,7 @@ function NewLink({ link, onDone }: { link: string; onDone: () => void }) {
   }, []);
   return (
     <div className="new-key">
-      <div className="notice warn">請現在複製並保存這個連結：它只會顯示這一次（伺服器只保存雜湊值）。</div>
+      <div className="notice warn">請保存此連結，關閉後將無法再次查看。</div>
       <div className="secret-box">
         <code>{link}</code>
         <button className="btn sm" onClick={copy}>

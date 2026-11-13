@@ -26,7 +26,7 @@ export type Dialog =
   | { t: 'move'; items: NodeInfo[] }
   | { t: 'keys' }
   | { t: 'password' }
-  | { t: 'settings'; section?: string }
+  | { t: 'settings'; section?: 'appearance' | 'background' | 'system' }
   | { t: 'confirm-close'; id: string }
   | { t: 'trash' }
   | { t: 'share'; item: NodeInfo }

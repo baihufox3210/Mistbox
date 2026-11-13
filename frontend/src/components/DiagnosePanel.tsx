@@ -165,7 +165,7 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
       <div className="diag-status muted small" role="status">
         {lang === 'auto' ? `自動判斷：${!report || stale ? '待分析' : report.lang === 'generic' || !report.lang ? '未辨識' : LANGS.find(([v]) => v === report.lang)?.[1] ?? '未辨識'}` : `指定語言：${LANGS.find(([v]) => v === lang)?.[1]}`}
         {stale && ' · 內容已變更，請重新分析'}
-        <span> · Ctrl+Enter 分析 · 僅暫存於記憶體</span>
+        <span> · Ctrl+Enter 分析</span>
       </div>
       <div className="diag-workspace">
         <section className="diag-source" aria-label="診斷輸入">
@@ -180,7 +180,7 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
           <section className="diag-col" aria-label="對應的程式碼">
             {!stale && (report.fixes?.length ?? 0) > 0 && <section className="diag-fixes" aria-label="可自動修正的問題">
               <h3 className="diag-title">可自動修正</h3>
-              <p className="muted small">預覽後套用至左側輸入；不會修改雲端檔案。套用後請重新分析。</p>
+              <p className="muted small">修正將套用至目前輸入。</p>
               {report.fixes!.map((fix, i) => <article className="sol-card" key={i}>
                 <strong>{fix.title}</strong>
                 <span className="muted small">第 {fix.line} 行 · {fix.rule}</span>
@@ -197,7 +197,6 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
                 <button className="btn ghost sm" onClick={() => setPreview(null)}>取消</button>
               </div>
             </section>}
-            {!stale && !report.fixes?.length && report.kind === 'code' && <p className="diag-hint muted small">此段程式碼沒有可自動套用的修正；需要判斷設計意圖的問題會保留修正建議。</p>}
             {!stale && report.frames.length > 0 && <>
               <h3 className="diag-title">錯誤位置</h3>
               <ul className="finding-list">{report.frames.map((f, i) => <li key={i}>
@@ -272,13 +271,7 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
               );
             })}
             <h3 className="diag-title">相關筆記 <span className="muted small">{report.notes.length} 篇</span></h3>
-            {report.notes.length === 0 && (
-              <p className="diag-hint muted small">
-                沒有相關筆記。按上方的「新增筆記」建立，或在任何 Markdown 筆記開頭加上
-                <code>---</code> <code>rules: [omp-race]</code> <code>errors: [&quot;錯誤訊息片段&quot;]</code> <code>---</code>
-                ，之後遇到同樣的規則或錯誤就會自動列在這裡。
-              </p>
-            )}
+            {report.notes.length === 0 && <p className="diag-hint muted small">尚無相關筆記</p>}
             {report.notes.map((n) => (
               <article key={n.node_id} className="note-card">
                 <header>
@@ -303,13 +296,10 @@ export default function DiagnosePanel({ m }: { m: DriveModel }) {
           </section>
         </div>
       ) : (
-        <div className="diag-empty muted">
-          <p>可以貼上：</p>
-          <ul>
-            <li>GCC／Clang／連結器錯誤、pioasm 錯誤、CMake 錯誤</li>
-            <li>Python traceback、GDB backtrace、Rust panic、ROS 2 log（<code>[ERROR] [時間] [node]: 訊息</code>）</li>
-            <li>一段程式碼：找出它在雲端的位置、相似的實作、呼叫關係與可優化之處</li>
-          </ul>
+        <div className="diag-empty">
+          <Icon name="diagnose" size={28} />
+          <h3>診斷與優化</h3>
+          <p className="muted">貼上錯誤訊息或程式碼，開始分析。</p>
         </div>
       )}
         </div>

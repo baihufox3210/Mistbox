@@ -77,7 +77,7 @@ export function useUploads(onUploaded: (dirId: string) => void) {
     enqueue,
     retry: (key: number) => patch(key, { status: 'queued' }),
     keepBoth: (key: number) => patch(key, { status: 'queued', policy: 'rename' }),
-    skip: (key: number) => patch(key, { status: 'skipped', error: '已略過（未覆寫既有檔案）' }),
+    skip: (key: number) => patch(key, { status: 'skipped', error: '已略過' }),
     cancel: (key: number) => {
       const a = aborts.current.get(key);
       if (a) a();
@@ -120,7 +120,7 @@ export function UploadPanel({ u, embedded }: { u: Uploads; embedded?: boolean })
                   <span className="muted small"> · {formatSize(i.file.size)}</span>
                 </div>
                 {i.status === 'uploading' && (
-                  <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+                  <div className="progress" role="progressbar" aria-label={`${i.file.name} 上傳進度`} aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
                     <div style={{ width: `${pct}%` }} />
                   </div>
                 )}

@@ -61,12 +61,12 @@ export function TextGate({ node, t, children }: { node: NodeInfo; t: TextState; 
     return <ErrorState error={t.error} node={node} />;
   }
   const d = t.data!;
-  if (d.binary) return <Info node={node} reason="這看起來是二進位檔案，無法以文字預覽。檔案已完整保存，可直接下載。" />;
+  if (d.binary) return <Info node={node} reason="此二進位檔案不支援文字預覽。" />;
   return (
     <div className="text-gate">
       {!d.valid_utf8 && (
         <div className="notice warn" role="status">
-          此檔案不是有效的 UTF-8。目前以 <b>{d.encoding}</b> 解碼顯示{t.encoding ? '' : '（自動偵測）'}；原始檔案未被修改。為避免改變編碼，此檔案只能檢視、不能編輯。
+          非 UTF-8 文字，以 <b>{d.encoding}</b> 顯示，僅供檢視。
         </div>
       )}
       {d.had_errors && <div className="notice warn">部分位元組無法以 {d.encoding} 解碼，已以 � 顯示。可嘗試其他編碼。</div>}

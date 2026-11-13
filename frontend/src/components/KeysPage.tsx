@@ -39,10 +39,7 @@ export default function KeysPage({ onClose }: { onClose: () => void }) {
         />
       ) : (
         <>
-          <div className="row between">
-            <p className="muted small">
-              API Key 只能存取被授權的檔案或資料夾（資料夾包含其下所有層級的子項目，於每次請求時依當下位置判定），不能管理帳號或其他 Key。
-            </p>
+          <div className="dialog-toolbar">
             <button className="btn primary" onClick={() => setCreating(true)}>
               <Icon name="plus" /> 建立 Key
             </button>
@@ -77,7 +74,7 @@ export default function KeysPage({ onClose }: { onClose: () => void }) {
                         <code className="small">{k.prefix}</code>
                       </td>
                       <td>
-                        {(['list', 'read', 'write'] as const).filter((p) => k.permissions[p]).join(' / ')}
+                        {(['list', 'read', 'write'] as const).filter((p) => k.permissions[p]).map((p) => ({ list: '瀏覽', read: '讀取', write: '管理' })[p]).join(' · ')}
                         {k.allow_sensitive && <div className="badge warn">含敏感檔</div>}
                       </td>
                       <td title={k.scope.covers}>
@@ -169,14 +166,14 @@ function CreateKey({ onCancel, onCreated }: { onCancel: () => void; onCreated: (
       </label>
       <fieldset className="field">
         <legend>權限</legend>
-        <label><input type="checkbox" checked={perm.list} onChange={(e) => setPerm({ ...perm, list: e.target.checked })} /> list（列出、搜尋、查詢資訊）</label>
-        <label><input type="checkbox" checked={perm.read} onChange={(e) => setPerm({ ...perm, read: e.target.checked })} /> read（下載、預覽內容）</label>
-        <label><input type="checkbox" checked={perm.write} onChange={(e) => setPerm({ ...perm, write: e.target.checked })} /> write（上傳、建立資料夾、範圍內改名／移動／刪除）</label>
+        <label><input type="checkbox" checked={perm.list} onChange={(e) => setPerm({ ...perm, list: e.target.checked })} /> 瀏覽與搜尋</label>
+        <label><input type="checkbox" checked={perm.read} onChange={(e) => setPerm({ ...perm, read: e.target.checked })} /> 預覽與下載</label>
+        <label><input type="checkbox" checked={perm.write} onChange={(e) => setPerm({ ...perm, write: e.target.checked })} /> 上傳與管理檔案</label>
       </fieldset>
       <div className="field">
         授權範圍：<strong>{scope.path}</strong>
         <span className="muted small">
-          {scope.kind === 'dir' ? '（此資料夾與其下所有層級的子項目）' : '（僅此單一檔案）'}
+          {scope.kind === 'dir' ? '包含所有子項目' : '僅此檔案'}
         </span>
         <NodePicker value={scope.id} allowFiles onChange={(n) => setScope(n)} />
       </div>
@@ -185,7 +182,7 @@ function CreateKey({ onCancel, onCreated }: { onCancel: () => void; onCreated: (
         <input type="date" value={expires} min={new Date().toISOString().slice(0, 10)} onChange={(e) => setExpires(e.target.value)} />
       </label>
       <label className="check">
-        <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} /> 允許存取被標記為「敏感」的檔案（.env、私鑰、憑證等）
+        <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} /> 允許存取敏感檔案
       </label>
       {err && <p className="form-error" role="alert">{err}</p>}
       <div className="modal-actions">
@@ -201,7 +198,7 @@ function NewKey({ secret, onDone }: { secret: string; onDone: () => void }) {
   const origin = window.location.origin;
   return (
     <div className="new-key">
-      <div className="notice warn">這是唯一一次顯示完整 Key。伺服器只保存其雜湊值，關閉後無法再取回。</div>
+      <div className="notice warn">請保存此 Key，關閉後將無法再次查看。</div>
       <div className="secret-box">
         <code>{secret}</code>
         <button
@@ -214,11 +211,14 @@ function NewKey({ secret, onDone }: { secret: string; onDone: () => void }) {
           <Icon name="copy" /> {copied ? '已複製' : '複製'}
         </button>
       </div>
-      <p className="muted small">使用範例（Key 只放在 Authorization 標頭，不要放進網址）：</p>
+      <details className="usage-example">
+      <summary>API 使用範例</summary>
+      <p className="muted small">請將 Key 放在 Authorization 標頭，勿加入網址。</p>
       <pre className="example">{`export MISTBOX_KEY='${secret.slice(0, 24)}…'
 curl -H "Authorization: Bearer $MISTBOX_KEY" "${origin}/api/v1/fs/list?path=/"
 curl -H "Authorization: Bearer $MISTBOX_KEY" -T report.pdf "${origin}/api/v1/fs/upload?path=/report.pdf"
 curl -H "Authorization: Bearer $MISTBOX_KEY" -OJ "${origin}/api/v1/fs/download?path=/report.pdf"`}</pre>
+      </details>
       <div className="modal-actions">
         <button className="btn primary" onClick={onDone}>我已妥善保存</button>
       </div>

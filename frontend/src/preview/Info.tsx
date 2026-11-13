@@ -8,7 +8,7 @@ export function Info({ node, reason }: { node: NodeInfo; reason?: string }) {
     <div className="info-view">
       <div className="info-icon"><FileIcon name={node.name} kind={node.kind} size={64} /></div>
       <h3>{node.name}</h3>
-      <p className="muted">{reason ?? '此格式沒有內建預覽，但檔案已完整保存，可下載後使用。'}</p>
+      <p className="muted">{reason ?? '此格式暫不支援預覽。'}</p>
       <dl>
         <dt>大小</dt><dd>{formatSize(node.size)}（{node.size.toLocaleString()} bytes）</dd>
         <dt>類型</dt><dd>{node.mime ?? '未知'}</dd>

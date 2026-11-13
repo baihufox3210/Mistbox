@@ -42,13 +42,12 @@ export function Topbar({
   return (
     <header className="topbar" data-region="topbar">
       {leading}
-      <button type="button" className="brand brand-home" aria-label="回到雲端首頁" title="回到雲端首頁" onClick={() => {
+      <button type="button" className="brand brand-home" aria-label="回到雲端首頁" onClick={() => {
         setLayout('drive');
         m.goHome();
         setMenu(false);
       }}>
         <Logo size={24} />
-        <span>Mistbox</span>
       </button>
       <button className="cmd-center" onClick={() => m.setPaletteMode('all')} title="指令面板（Ctrl+Shift+P / F1 / Ctrl+K）">
         <Icon name="search" />
@@ -86,7 +85,7 @@ export function Topbar({
           {menu && (
             <div className="menu" role="menu" onClick={() => setMenu(false)}>
               <button role="menuitem" onClick={() => m.setDialog({ t: 'settings' })}>
-                <Icon name="gear" /> 設定（主題、背景、自訂 CSS、語意搜尋）
+                <Icon name="gear" /> 設定
               </button>
               <button role="menuitem" onClick={() => m.setDialog({ t: 'keys' })}>
                 <Icon name="key" /> API Keys
@@ -118,8 +117,8 @@ export function useCommands(
       { id: 'new-folder', label: '新增資料夾', icon: 'folderPlus', keywords: 'mkdir create directory', run: () => m.actions.newFolder(target()) },
       { id: 'upload', label: '上傳檔案', icon: 'upload', keywords: 'upload', run: () => m.actions.upload(target()) },
       { id: 'upload-folder', label: '上傳資料夾', icon: 'folder', keywords: 'upload directory', run: () => m.actions.uploadFolder(target()) },
-      { id: 'diagnose', label: '診斷／優化模式（貼上錯誤訊息或程式碼）', icon: 'diagnose', shortcut: `${MOD}+Shift+D`, keywords: 'diagnose debug error fix optimize 診斷 除錯 錯誤 優化 解決', run: () => (setLayout('ide'), m.openDiagnose()) },
-      { id: 'semantic', label: '語意搜尋（本地模型）', icon: 'sparkle', shortcut: `${MOD}+Shift+F`, keywords: 'rag vector semantic 向量 相似', run: () => setTimeout(() => m.setPaletteMode('semantic')) },
+      { id: 'diagnose', label: '診斷／優化', icon: 'diagnose', shortcut: `${MOD}+Shift+D`, keywords: 'diagnose debug error fix optimize 診斷 除錯 錯誤 優化 解決', run: () => (setLayout('ide'), m.openDiagnose()) },
+      { id: 'semantic', label: '語意搜尋', icon: 'sparkle', shortcut: `${MOD}+Shift+F`, keywords: 'rag vector semantic 向量 相似', run: () => setTimeout(() => m.setPaletteMode('semantic')) },
       { id: 'goto-file', label: '前往檔案（依檔名）', icon: 'search', shortcut: `${MOD}+P`, keywords: 'open quick find', run: () => setTimeout(() => m.setPaletteMode('files')) },
       { id: 'save', label: '儲存目前檔案', icon: 'save', shortcut: `${MOD}+S`, keywords: 'save write', run: () => m.saveActive() },
       { id: 'layout-drive', label: '切換版面：雲端硬碟', icon: 'grid', keywords: 'layout view google drive', run: () => setLayout('drive') },
@@ -127,8 +126,8 @@ export function useCommands(
       { id: 'theme-light', label: '主題：淺色', icon: 'sun', keywords: 'theme light', run: () => applyTheme('light') },
       { id: 'theme-dark', label: '主題：深色', icon: 'moon', keywords: 'theme dark night', run: () => applyTheme('dark') },
       { id: 'theme-system', label: '主題：跟隨系統', icon: 'layout', keywords: 'theme system auto', run: () => applyTheme('system') },
-      { id: 'settings', label: '開啟設定（背景圖片、自訂 CSS、語意搜尋）', icon: 'gear', keywords: 'preferences background css', run: () => m.setDialog({ t: 'settings' }) },
-      { id: 'reload-css', label: '重新載入自訂 CSS（theme/custom.css）', icon: 'refresh', keywords: 'custom css theme reload', run: () => (loadCustomCss(true), m.toast('已重新載入 custom.css')) },
+      { id: 'settings', label: '開啟設定', icon: 'gear', keywords: 'preferences background css', run: () => m.setDialog({ t: 'settings' }) },
+      { id: 'reload-css', label: '重新載入樣式', icon: 'refresh', keywords: 'custom css theme reload', run: () => (loadCustomCss(true), m.toast('正在重新載入樣式')) },
       { id: 'refresh', label: '重新整理檔案清單', icon: 'refresh', keywords: 'reload refresh', run: () => m.bump() },
       { id: 'trash', label: '開啟垃圾桶（還原已刪除的項目）', icon: 'trash', keywords: 'trash recycle bin restore 刪除 還原 回收', run: () => m.setDialog({ t: 'trash' }) },
       { id: 'go-root', label: '回到根目錄', icon: 'folder', keywords: 'home root', run: () => m.navigate('root') },
@@ -307,7 +306,7 @@ export function ShellOverlays({
       {d?.t === 'share' && <SharesDialog node={d.item} onClose={close} toast={m.toast} />}
       {d?.t === 'shares' && <SharesDialog onClose={close} toast={m.toast} />}
       {d?.t === 'password' && <PasswordDialog onClose={close} />}
-      {d?.t === 'settings' && <SettingsDialog onClose={close} layout={layout} setLayout={setLayout} />}
+      {d?.t === 'settings' && <SettingsDialog onClose={close} layout={layout} setLayout={setLayout} section={d.section} />}
       {d?.t === 'confirm-close' && confirmTab && (
         <Modal title="尚未儲存" onClose={close}>
           <p>「{confirmTab.node.name}」有尚未儲存的變更。</p>
