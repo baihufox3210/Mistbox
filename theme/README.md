@@ -79,8 +79,10 @@
 | `--hover` `--selection` `--tint` `--accent-line` | 滑過、選取的淡色底與強調細線（簡約線條風格） |
 | `--code-bg` `--code-gutter-bg` `--code-active-line` `--code-selection` | 編輯器 |
 | `--syn-keyword` `--syn-string` `--syn-number` `--syn-comment` `--syn-function` `--syn-type` `--syn-property` `--syn-variable` `--syn-punct` `--syn-meta` `--syn-tag` `--syn-heading` `--syn-link` | 語法高亮；CodeMirror 與 Markdown 程式碼區塊共用 |
-| `--mb-bg-image` `--mb-bg-dim` `--mb-bg-blur` | 背景圖、遮罩、模糊（由設定寫入） |
+| `--mb-bg-image` `--mb-bg-dim` `--mb-bg-blur` | 背景圖、整體不透明度、模糊（由設定寫入；透明度 100% 對應不透明度 0） |
 | `--mb-bg-overlay` | 遮罩顏色（RGB 三元組） |
-| `--glass` | 有背景時面板的不透明度 |
+| `--glass` | 有背景時面板的不透明度，預設跟隨 `--mb-bg-dim`，初始為 0 |
 
 深色模式的覆寫請寫在 `html[data-theme='dark'] { … }` 內。
+
+Logo 配色可在設定中獨立選擇深色或淺藍色，儲存於目前裝置，並同步套用至分頁圖示。

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, errorText, type RagStatus, type UiSettings } from '../api';
-import { applyBackground, applyTheme, getThemePref, loadCustomCss, type Layout, type ThemePref } from '../theme';
+import { applyBackground, applyLogo, applyTheme, getLogoPref, getThemePref, loadCustomCss, type Layout, type LogoPref, type ThemePref } from '../theme';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
 
@@ -14,9 +14,10 @@ export default function SettingsDialog({
   setLayout: (l: Layout) => void;
 }) {
   const [theme, setTheme] = useState<ThemePref>(getThemePref());
+  const [logo, setLogo] = useState<LogoPref>(getLogoPref());
   const [s, setS] = useState<UiSettings | null>(null);
   const [url, setUrl] = useState('');
-  const [dim, setDim] = useState(0.35);
+  const [dim, setDim] = useState(0);
   const [blur, setBlur] = useState(0);
   const [msg, setMsg] = useState('');
   const [rag, setRag] = useState<RagStatus | null>(null);
@@ -79,6 +80,15 @@ export default function SettingsDialog({
             </div>
           </div>
           <div className="seg-row">
+            <span>Logo 配色</span>
+            <div className="segmented">
+              {([['dark', '深色'], ['light', '淺藍色']] as const).map(([value, label]) => (
+                <button key={value} className={logo === value ? 'on' : ''} aria-pressed={logo === value}
+                  onClick={() => { setLogo(value); applyLogo(value); }}>{label}</button>
+              ))}
+            </div>
+          </div>
+          <div className="seg-row">
             <span>版面</span>
             <div className="segmented">
               <button className={layout === 'drive' ? 'on' : ''} aria-pressed={layout === 'drive'} onClick={() => setLayout('drive')}>
@@ -107,9 +117,10 @@ export default function SettingsDialog({
             或在雲端圖片上按右鍵 →「設為背景」。留空即移除背景。
           </p>
           <label className="field range">
-            遮罩不透明度 {Math.round(dim * 100)}%
-            <input type="range" min={0} max={100} step={1} value={Math.round(dim * 100)} onChange={(e) => setDim(Number(e.target.value) / 100)} />
+            整體透明度 {Math.round((1 - dim) * 100)}%
+            <input type="range" min={0} max={100} step={1} value={Math.round((1 - dim) * 100)} onChange={(e) => setDim((100 - Number(e.target.value)) / 100)} />
           </label>
+          <p className="muted small">100% 完全透明，0% 完全不透明；同步調整背景遮罩與內容面板。</p>
           <label className="field range">
             模糊 {blur}px
             <input type="range" min={0} max={40} step={1} value={blur} onChange={(e) => setBlur(Number(e.target.value))} />

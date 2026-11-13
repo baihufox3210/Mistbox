@@ -1,3 +1,4 @@
+import { Logo } from './Logo';
 // Chrome shared by both layouts: top bar (command centre instead of a search
 // box), global shortcuts, command palette, dialogs, hidden upload inputs, toast.
 import { useEffect, useMemo, useState } from 'react';
@@ -42,7 +43,7 @@ export function Topbar({
     <header className="topbar" data-region="topbar">
       {leading}
       <div className="brand">
-        <img src="/favicon.svg" alt="" width={24} height={24} />
+        <Logo size={24} />
         <span>Mistbox</span>
       </div>
       <button className="cmd-center" onClick={() => m.setPaletteMode('all')} title="指令面板（Ctrl+Shift+P / F1 / Ctrl+K）">

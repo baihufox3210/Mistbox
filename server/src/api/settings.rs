@@ -54,7 +54,7 @@ async fn load(state: &AppState) -> ApiResult<Value> {
     let get = |k: &str| rows.iter().find(|r| r.0 == k).map(|r| r.1.clone());
     Ok(json!({
         "background_url": get("background_url").unwrap_or_default(),
-        "background_dim": get("background_dim").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.35),
+        "background_dim": get("background_dim").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
         "background_blur": get("background_blur").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
         "theme_css_url": if state.cfg.theme_dir.is_empty() { Value::Null } else { json!("/theme/custom.css") },
     }))

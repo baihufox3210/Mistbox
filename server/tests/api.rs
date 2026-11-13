@@ -1132,6 +1132,7 @@ async fn settings_background_and_dynamic_csp() {
     let t = T::new().await;
     let r = t.admin(Method::GET, "/api/v1/settings", None).await;
     assert_eq!(r.json()["background_url"], "");
+    assert_eq!(r.json()["background_dim"], 0.0);
     let bad = t
         .admin(
             Method::PUT,
@@ -1184,6 +1185,13 @@ async fn settings_background_and_dynamic_csp() {
         let loaded = t.admin(Method::GET, "/api/v1/settings", None).await;
         assert_eq!(loaded.json()["background_dim"], dim);
     }
+    // Upgrades reset the previous dimming preference to fully transparent.
+    sqlx::query(include_str!("../migrations/0006_background_transparency.sql"))
+        .execute(&t.state.db)
+        .await
+        .unwrap();
+    let reset = t.admin(Method::GET, "/api/v1/settings", None).await;
+    assert_eq!(reset.json()["background_dim"], 0.0);
     // API keys cannot read or change settings.
     let key = t
         .key(json!({"name":"k","permissions":{"list":true,"read":true,"write":true}}))

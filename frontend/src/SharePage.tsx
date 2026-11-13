@@ -1,3 +1,4 @@
+import { Logo } from './components/Logo';
 // Page for people holding a share link: /s/<id>#<secret>.
 // No login. The secret is read from the URL fragment (never sent to the
 // server as part of the URL) and sent in the X-Share-Token header.
@@ -49,7 +50,7 @@ export default function SharePage({ id }: { id: string }) {
   if (st.s === 'error')
     return (
       <div className="fullscreen-state share-error">
-        <img src="/favicon.svg" alt="" width={48} height={48} />
+        <Logo size={48} />
         <h2>{st.invalid ? '無法開啟分享' : '發生錯誤'}</h2>
         <p className="muted">{st.message}</p>
         {!st.invalid && <button className="btn" onClick={open}>重試</button>}
@@ -75,7 +76,7 @@ function ShareBar({ share, onPalette, leading }: { share: OpenedShare; onPalette
     <header className="topbar share-bar" data-region="topbar">
       {leading}
       <div className="brand">
-        <img src="/favicon.svg" alt="" width={24} height={24} />
+        <Logo size={24} />
         <span>Mistbox</span>
       </div>
       <div className="share-title">

@@ -1,3 +1,4 @@
+import { Logo } from './components/Logo';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, ApiError, errorText, setCsrf, UNAUTHORIZED_EVENT } from './api';
 import { Icon } from './components/Icon';
@@ -118,7 +119,7 @@ function Login({ onIn, reason }: { onIn: (u: string) => void; reason?: string })
         }}
       >
         <div className="brand big">
-          <img src="/favicon.svg" alt="" width={40} height={40} />
+          <Logo size={40} />
           <h1>Mistbox</h1>
         </div>
         <p className="muted">私人雲端硬碟</p>
