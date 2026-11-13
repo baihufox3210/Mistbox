@@ -82,6 +82,7 @@ function MarkdownBody({
               key={`${t.encoding}-${d.text.length}`}
               text={ed.text}
               lang="markdown"
+              defaultWrap
               editable={ed.editing}
               onChange={ed.setDraft}
               onSave={ed.save}

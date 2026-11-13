@@ -29,6 +29,7 @@ const PATHS: Record<string, string> = {
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
   splitRight: 'M4 5h16v14H4zM12 5v14',
+  wrap: 'M4 6h16M4 12h13a3 3 0 0 1 0 6h-4M15 16l-2 2 2 2M4 18h5',
   sevError: 'M12 3.5a8.5 8.5 0 1 1 0 17 8.5 8.5 0 0 1 0-17zM9 9l6 6M15 9l-6 6',
   sevWarning: 'M12 4 2.8 19.5h18.4zM12 10v4.5M12 17h.01',
   sevPerf: 'M13 3 5.5 13.5H11L10 21l7.5-10.5H12z',

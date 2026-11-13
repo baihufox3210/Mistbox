@@ -276,7 +276,12 @@ pub struct Region {
 
 /// Chain matches along diagonals into clone regions. With `same_file`, A and B
 /// are the same file: self-matches and mirrored / overlapping pairs are dropped.
-pub fn regions(mut ms: Vec<Match>, same_file: bool) -> Vec<Region> {
+pub fn regions(ms: Vec<Match>, same_file: bool) -> Vec<Region> {
+    regions_with(ms, same_file, MIN_TOKENS, MIN_FPS)
+}
+
+/// [`regions`] with explicit thresholds (shorter pasted snippets use lower ones).
+pub fn regions_with(mut ms: Vec<Match>, same_file: bool, min_tokens: u32, min_fps: u32) -> Vec<Region> {
     if same_file {
         ms.retain(|m| m.a_tok < m.b_tok);
     }
@@ -326,7 +331,7 @@ pub fn regions(mut ms: Vec<Match>, same_file: bool) -> Vec<Region> {
         .filter_map(|c| {
             let tokens = c.last.a_tok + K as u32 - c.first_a;
             let overlap = same_file && c.first_b < c.last.a_tok + K as u32;
-            (c.n >= MIN_FPS && tokens >= MIN_TOKENS && !overlap).then_some(Region { tokens, ..c.r })
+            (c.n >= min_fps && tokens >= min_tokens && !overlap).then_some(Region { tokens, ..c.r })
         })
         .collect();
     out.sort_by_key(|r| (std::cmp::Reverse(r.tokens), r.a_start));

@@ -35,15 +35,19 @@ macro_rules! with_subtree {
     };
 }
 
+pub(crate) use with_subtree;
+
 /// Per-file rows, cleared before re-analysing a file.
-const CLEAR_FILE: [&str; 4] = [
+const CLEAR_FILE: [&str; 5] = [
+    "DELETE FROM code_text WHERE node_id = ?",
     "DELETE FROM code_symbols WHERE node_id = ?",
     "DELETE FROM code_refs WHERE node_id = ?",
     "DELETE FROM code_findings WHERE node_id = ?",
     "DELETE FROM code_fp WHERE node_id = ?",
 ];
 /// Rows of files that are no longer indexed.
-const CLEAR_STALE: [&str; 4] = [
+const CLEAR_STALE: [&str; 5] = [
+    "DELETE FROM code_text WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
     "DELETE FROM code_symbols WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
     "DELETE FROM code_refs WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
     "DELETE FROM code_findings WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
@@ -155,12 +159,18 @@ impl CodeIndex {
         }
         let (text, _, _) = textview::detect(&buf).decode(&buf);
         let text = text.into_owned();
-        let a = tokio::task::spawn_blocking(move || analyze(lang, &text)).await?;
+        let (a, text) = tokio::task::spawn_blocking(move || (analyze(lang, &text), text)).await?;
 
         let mut tx = db.begin().await?;
         for q in CLEAR_FILE {
             sqlx::query(q).bind(&n.id).execute(&mut *tx).await?;
         }
+        sqlx::query("INSERT INTO code_text (node_id, lang, body) VALUES (?, ?, ?)")
+            .bind(&n.id)
+            .bind(lang.as_str())
+            .bind(&text)
+            .execute(&mut *tx)
+            .await?;
         for s in &a.symbols {
             sqlx::query("INSERT INTO code_symbols (node_id, name, kind, line_start, line_end) VALUES (?, ?, ?, ?, ?)")
                 .bind(&n.id)
@@ -409,7 +419,10 @@ pub async fn clones_in(db: &SqlitePool, folder: &str, limit: usize) -> anyhow::R
 #[derive(Serialize, Debug, Default)]
 pub struct Status {
     pub state: &'static str,
+    /// Source files analysed.
     pub files: i64,
+    /// Markdown notes indexed for full-text search.
+    pub notes: i64,
     pub pending: i64,
     pub by_lang: HashMap<String, i64>,
     pub findings: HashMap<String, i64>,
@@ -435,7 +448,8 @@ pub async fn status(db: &SqlitePool, idx: &CodeIndex) -> anyhow::Result<Status> 
     .await?;
     Ok(Status {
         state: idx.state(),
-        files: by_lang.iter().map(|x| x.1).sum(),
+        files: by_lang.iter().filter(|x| x.0 != "markdown").map(|x| x.1).sum(),
+        notes: by_lang.iter().filter(|x| x.0 == "markdown").map(|x| x.1).sum(),
         pending,
         by_lang: by_lang.into_iter().collect(),
         findings: findings.into_iter().collect(),

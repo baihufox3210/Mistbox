@@ -91,6 +91,9 @@ function dropZone(e: React.DragEvent, el: HTMLElement): Edge | 'center' {
   return d === fy ? 'top' : 'bottom';
 }
 
+/** Last layout, so switching to the Drive layout and back keeps the groups (memory only). */
+let lastGrid: Grid | null = null;
+
 export default function EditorGrid({
   m,
   nodeFor,
@@ -102,9 +105,10 @@ export default function EditorGrid({
   /** Shown when nothing is open at all. */
   empty: React.ReactNode;
 }) {
-  const [grid, setGrid] = useState<Grid>(initialGrid);
+  const [grid, setGrid] = useState<Grid>(() => lastGrid ?? initialGrid());
   const gridRef = useRef(grid);
   gridRef.current = grid;
+  lastGrid = grid;
   const prevActive = useRef<string | null>(null);
   const place = useRef<{ group: string; edge?: Edge; tab?: string } | null>(null);
   const box = useRef<HTMLDivElement>(null);

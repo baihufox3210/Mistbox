@@ -8,9 +8,14 @@
 //! - `pio`     PIO assembly parser and rules
 //! - `clones`  token fingerprints (winnowing) for duplicate-code detection
 //! - `index`   background indexer and queries over the stored results
+//! - `diagnose` diagnose / optimise mode: parse pasted errors and code
+//! - `knowledge` built-in explanations for common error messages
+//! - `resolve` look parsed input up in the index (locations, notes)
 
 pub mod clones;
+pub mod diagnose;
 pub mod index;
+pub mod knowledge;
 pub mod pio;
 pub mod rules;
 pub mod syntax;
@@ -18,7 +23,7 @@ pub mod syntax;
 use serde::Serialize;
 
 /// Bump to re-analyse every file after changing rules or the fingerprinting.
-pub const ENGINE: i64 = 1;
+pub const ENGINE: i64 = 2;
 /// Larger files are not analysed.
 pub const MAX_FILE_BYTES: i64 = 1024 * 1024;
 
@@ -30,6 +35,8 @@ pub enum Lang {
     Pio,
     /// Other source code: fingerprints only (duplicate detection).
     Generic,
+    /// Markdown notes: full-text search only (solutions / optimisation notes).
+    Markdown,
 }
 
 impl Lang {
@@ -40,6 +47,7 @@ impl Lang {
             Lang::Python => "python",
             Lang::Pio => "pio",
             Lang::Generic => "generic",
+            Lang::Markdown => "markdown",
         }
     }
 
@@ -50,6 +58,7 @@ impl Lang {
             "python" | "py" => Lang::Python,
             "pio" => Lang::Pio,
             "generic" => Lang::Generic,
+            "markdown" | "md" => Lang::Markdown,
             _ => return None,
         })
     }
@@ -67,6 +76,7 @@ impl Lang {
             | "tsx" | "cs" | "swift" | "m" | "mm" | "lua" | "zig" | "v" | "sv" | "vhd" | "vhdl"
             | "s" | "asm" | "sh" | "bash" | "pl" | "rb" | "php" | "dart" | "jl" | "f90" | "f"
             | "cmake" => Lang::Generic,
+            "md" | "markdown" => Lang::Markdown,
             _ => return None,
         })
     }
@@ -297,6 +307,7 @@ pub fn analyze(lang: Lang, src: &str) -> Analysis {
             a.findings = pio::check(&p);
         }
         Lang::Generic => {}
+        Lang::Markdown => return a,
     }
     a.findings.sort_by_key(|f| (f.line, f.col, f.severity));
     let toks = clones::tokenize(lang, src);
@@ -320,7 +331,8 @@ mod tests {
         assert_eq!(Lang::from_name("k.cu"), Some(Lang::Cpp));
         assert_eq!(Lang::from_name("ws2812.pio"), Some(Lang::Pio));
         assert_eq!(Lang::from_name("talker.py"), Some(Lang::Python));
-        assert_eq!(Lang::from_name("notes.md"), None);
+        assert_eq!(Lang::from_name("notes.md"), Some(Lang::Markdown));
+        assert_eq!(Lang::from_name("a.txt"), None);
         assert_eq!(Lang::from_name("Makefile"), None);
     }
 }

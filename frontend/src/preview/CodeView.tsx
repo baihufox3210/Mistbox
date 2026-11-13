@@ -11,6 +11,7 @@ import {
   Decoration,
   gutter,
   GutterMarker,
+  ViewPlugin,
   type DecorationSet,
 } from '@codemirror/view';
 import { syntaxHighlighting, defaultHighlightStyle, HighlightStyle, StreamLanguage, foldGutter, bracketMatching, indentOnInput } from '@codemirror/language';
@@ -162,6 +163,34 @@ const diagField = StateField.define<{ lines: DecorationSet; marks: RangeSet<Gutt
   },
   provide: (f) => EditorView.decorations.from(f, (v) => v.lines),
 });
+/**
+ * The line-number gutter stays put while the text scrolls sideways under it.
+ * With a translucent theme (background image) the text would show through,
+ * so clip away exactly the part of the content that is behind the gutter.
+ */
+const clipUnderGutter = ViewPlugin.fromClass(
+  class {
+    constructor(readonly view: EditorView) {
+      this.sync = this.sync.bind(this);
+      view.scrollDOM.addEventListener('scroll', this.sync, { passive: true });
+      this.sync();
+    }
+    sync() {
+      const s = this.view.scrollDOM.scrollLeft;
+      const g = (this.view.dom.querySelector('.cm-gutters') as HTMLElement | null)?.offsetWidth ?? 0;
+      this.view.dom.style.setProperty('--cm-scroll-left', `${s}px`);
+      this.view.dom.style.setProperty('--cm-gutter-w', `${g}px`);
+    }
+    update() {
+      // Gutter width changes with the number of digits.
+      this.sync();
+    }
+    destroy() {
+      this.view.scrollDOM.removeEventListener('scroll', this.sync);
+    }
+  },
+);
+
 const diagGutter = gutter({ class: 'cm-diag-gutter', markers: (v) => v.state.field(diagField).marks });
 
 const theme = EditorView.theme({
@@ -215,6 +244,8 @@ interface Props {
   line?: number;
   /** Static-analysis findings to mark in the gutter. */
   diagnostics?: Diagnostic[];
+  /** Start with line wrapping on (prose, e.g. Markdown). */
+  defaultWrap?: boolean;
 }
 
 /**
@@ -222,13 +253,13 @@ interface Props {
  * wrap, optional editing with Ctrl/Cmd+S. The document is created once per
  * mount (remount with a React key to load new text). CRLF files keep CRLF.
  */
-export default function CodeView({ text, lang, toolbar, editable = false, onChange, onSave, line, diagnostics }: Props) {
+export default function CodeView({ text, lang, toolbar, editable = false, onChange, onSave, line, diagnostics, defaultWrap = false }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const comps = useRef({ wrap: new Compartment(), ro: new Compartment(), lang: new Compartment() });
   const cb = useRef({ onChange, onSave });
   cb.current = { onChange, onSave };
-  const [wrap, setWrap] = useState(false);
+  const [wrap, setWrap] = useState(defaultWrap);
   const [copied, setCopied] = useState(false);
   const crlf = text.includes('\r\n');
 
@@ -239,6 +270,7 @@ export default function CodeView({ text, lang, toolbar, editable = false, onChan
       state: EditorState.create({
         doc: text,
         extensions: [
+          clipUnderGutter,
           diagField,
           diagGutter,
           lineNumbers(),
@@ -266,7 +298,7 @@ export default function CodeView({ text, lang, toolbar, editable = false, onChan
             ...defaultKeymap,
           ]),
           comps.current.lang.of(languageExtension(lang)),
-          comps.current.wrap.of([]),
+          comps.current.wrap.of(defaultWrap ? EditorView.lineWrapping : []),
           theme,
           EditorView.updateListener.of((u) => {
             if (u.docChanged) cb.current.onChange?.(u.state.doc.toString());
@@ -325,13 +357,13 @@ export default function CodeView({ text, lang, toolbar, editable = false, onChan
           onClick={() => view.current && (view.current.focus(), openSearchPanel(view.current))}
           title="搜尋（Ctrl+F）"
         >
-          <Icon name="search" /> 搜尋
+          <Icon name="search" /> <span className="btn-label">搜尋</span>
         </button>
-        <button className={`btn ghost sm ${wrap ? 'active' : ''}`} onClick={() => setWrap((w) => !w)} aria-pressed={wrap}>
-          自動換行
+        <button className={`btn ghost sm ${wrap ? 'active' : ''}`} onClick={() => setWrap((w) => !w)} aria-pressed={wrap} title="自動換行">
+          <Icon name="wrap" /> <span className="btn-label">自動換行</span>
         </button>
-        <button className="btn ghost sm" onClick={copy}>
-          <Icon name="copy" /> {copied ? '已複製' : '複製'}
+        <button className="btn ghost sm" onClick={copy} title="複製全部">
+          <Icon name="copy" /> <span className="btn-label">{copied ? '已複製' : '複製'}</span>
         </button>
       </div>
       <div className="code-host" ref={host} />

@@ -848,3 +848,21 @@ html[data-theme='light'] .statusbar {
   --tint: rgba(23, 50, 78, 0.08);
   color: var(--text);
 }
+
+/* Code editor: text scrolled sideways is clipped at the line-number gutter
+   (the gutter is translucent when a background image is set). */
+.code-host .cm-content { clip-path: inset(0 0 0 var(--cm-scroll-left, 0px)); }
+.code-host .cm-layer { clip-path: inset(0 0 0 calc(var(--cm-scroll-left, 0px) + var(--cm-gutter-w, 0px) - 1px)); }
+
+/* Narrow editors (split groups, Markdown split view): icon-only tool buttons,
+   and the Markdown source / preview stacked instead of side by side. */
+.code-view { container-type: inline-size; }
+@container (max-width: 560px) {
+  .code-view .btn-label { display: none; }
+  .code-view .viewer-toolbar { gap: 4px; }
+}
+.md-preview { container-type: inline-size; }
+@container (max-width: 760px) {
+  .md-panes.split { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  .md-panes.split .md-source { border-right: 0; border-bottom: 1px solid var(--line); }
+}

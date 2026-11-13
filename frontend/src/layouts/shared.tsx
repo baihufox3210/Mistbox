@@ -10,9 +10,16 @@ import { ADMIN_CAPS, type Caps } from '../caps';
 export const DND_TYPE = 'application/x-mistbox-node';
 
 /** Lazily loaded folder tree shared by the IDE explorer and the Drive sidebar. */
+/** Expanded folders / loaded children, kept across layout switches (memory only). */
+const treeMemory: { expanded: Set<string> | null; kids: Record<string, NodeInfo[] | 'loading' | 'error'> } = { expanded: null, kids: {} };
+
 export function useTree(version: number, initiallyOpen: string[] = ['root']) {
-  const [kids, setKids] = useState<Record<string, NodeInfo[] | 'loading' | 'error'>>({});
-  const [expanded, setExpanded] = useState<Set<string>>(new Set(initiallyOpen));
+  const [kids, setKids] = useState<Record<string, NodeInfo[] | 'loading' | 'error'>>(() =>
+    Object.fromEntries(Object.entries(treeMemory.kids).filter(([, v]) => Array.isArray(v))),
+  );
+  const [expanded, setExpanded] = useState<Set<string>>(() => treeMemory.expanded ?? new Set(initiallyOpen));
+  treeMemory.expanded = expanded;
+  treeMemory.kids = kids;
   const load = useCallback((id: string) => {
     setKids((k) => ({ ...k, [id]: Array.isArray(k[id]) ? k[id] : 'loading' }));
     api.children(id).then(

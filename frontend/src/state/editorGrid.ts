@@ -247,6 +247,9 @@ export function reconcile(
     const fg = out.groups[focusedBefore];
     want = fg ? fg.active : active && groupOf(out, active) ? active : (out.groups[out.focused]?.active ?? null);
   }
+  // Nothing active globally (e.g. back from the Drive layout) but the focused
+  // group shows a tab: that tab is the active one.
+  if (!want && !prevActive) want = out.groups[out.focused]?.active ?? null;
   if (want && groupOf(out, want)) out = focusTab(out, want);
   return { grid: out, active: want };
 }
