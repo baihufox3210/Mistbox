@@ -84,16 +84,20 @@ static FRAME_RES: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     .collect()
 });
 
-static IN_FUNCTION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^(?P<file>[^:]+): In (?:member )?function ['‘`](?P<func>[^'’`]+)['’`]:").unwrap());
+static IN_FUNCTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?P<file>[^:]+): In (?:member )?function ['‘`](?P<func>[^'’`]+)['’`]:").unwrap()
+});
 static PY_EXC: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^(?P<exc>[A-Za-z_][\w.]*(?:Error|Exception|Warning|Interrupt|Exit|Fault)):\s*(?P<msg>.*)$").unwrap()
 });
 /// ROS 2 / spdlog style: [ERROR] [1700000000.123] [node]: message
-static ROS_LOG: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\[(?P<lvl>FATAL|ERROR|WARN|INFO|DEBUG)\](?:\s*\[[^\]]*\])*:\s*(?P<msg>.+)$").unwrap());
-static QUOTED_IDENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[‘'`\x22](?P<id>[A-Za-z_][\w:]*)(?:\([^)]*\))?['’\x22]").unwrap());
+static ROS_LOG: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\[(?P<lvl>FATAL|ERROR|WARN|INFO|DEBUG)\](?:\s*\[[^\]]*\])*:\s*(?P<msg>.+)$")
+        .unwrap()
+});
+static QUOTED_IDENT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[‘'`\x22](?P<id>[A-Za-z_][\w:]*)(?:\([^)]*\))?['’\x22]").unwrap()
+});
 static PY_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:name|attribute|module named) '(?P<id>[\w.]+)'|'(?P<obj>\w+)' object has no attribute '(?P<attr>\w+)'").unwrap()
 });
@@ -102,14 +106,18 @@ static ERROR_WORDS: LazyLock<Regex> = LazyLock::new(|| {
 });
 /// Variable parts of a log message (numbers, hex, paths, quoted values).
 static VOLATILE_PART: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"0x[0-9a-fA-F]+|\b\d+(?:\.\d+)*\b|(?:/[\w.\-]+)+|"[^"]*"|'[^']*'|‘[^’]*’|\[[^\]]*\]"#).unwrap()
+    Regex::new(
+        r#"0x[0-9a-fA-F]+|\b\d+(?:\.\d+)*\b|(?:/[\w.\-]+)+|"[^"]*"|'[^']*'|‘[^’]*’|\[[^\]]*\]"#,
+    )
+    .unwrap()
 });
 
 const NOT_SYMBOLS: &[&str] = &[
-    "int", "char", "void", "float", "double", "long", "short", "unsigned", "signed", "bool", "const", "struct", "class",
-    "return", "static", "auto", "size_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t", "int8_t", "int16_t",
-    "int32_t", "int64_t", "std", "None", "True", "False", "self", "this", "main", "error", "warning", "note", "in",
-    "and", "or", "not", "for", "while", "if", "else", "Werror", "Wall", "Wextra",
+    "int", "char", "void", "float", "double", "long", "short", "unsigned", "signed", "bool",
+    "const", "struct", "class", "return", "static", "auto", "size_t", "uint8_t", "uint16_t",
+    "uint32_t", "uint64_t", "int8_t", "int16_t", "int32_t", "int64_t", "std", "None", "True",
+    "False", "self", "this", "main", "error", "warning", "note", "in", "and", "or", "not", "for",
+    "while", "if", "else", "Werror", "Wall", "Wextra",
 ];
 
 fn clean(text: &str) -> String {
@@ -133,7 +141,16 @@ fn dedent(text: &str) -> String {
         .map(|l| l.len() - l.trim_start_matches([' ', '\t']).len())
         .min()
         .unwrap_or(0);
-    text.lines().map(|l| if l.len() >= common { &l[common..] } else { l.trim_start() }).collect::<Vec<_>>().join("\n")
+    text.lines()
+        .map(|l| {
+            if l.len() >= common {
+                &l[common..]
+            } else {
+                l.trim_start()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `12 | code` / `12: code` listings (rustc, gcc caret output, editors): strip
@@ -146,26 +163,49 @@ fn strip_listing(text: &str) -> Option<(String, u32)> {
         return None;
     }
     let first: u32 = caps[0][1].parse().ok()?;
-    let out = lines.iter().map(|l| LISTING.replace(l, "").into_owned()).collect::<Vec<_>>().join("\n");
+    let out = lines
+        .iter()
+        .map(|l| LISTING.replace(l, "").into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
     Some((out, first))
 }
 
 pub fn guess_lang(code: &str) -> Lang {
     let has = |s: &str| code.contains(s);
     let lines = || code.lines().map(str::trim_start);
-    if lines().any(|l| l.starts_with(".program") || l.starts_with(".side_set") || l.starts_with(".wrap"))
-        || lines().filter(|l| l.contains(" side ") || l.ends_with(']')).count() >= 2
-            && lines().any(|l| ["out ", "in ", "jmp ", "set ", "pull", "push", "wait "].iter().any(|i| l.starts_with(i)))
+    if lines()
+        .any(|l| l.starts_with(".program") || l.starts_with(".side_set") || l.starts_with(".wrap"))
+        || lines()
+            .filter(|l| l.contains(" side ") || l.ends_with(']'))
+            .count()
+            >= 2
+            && lines().any(|l| {
+                ["out ", "in ", "jmp ", "set ", "pull", "push", "wait "]
+                    .iter()
+                    .any(|i| l.starts_with(i))
+            })
     {
         return Lang::Pio;
     }
-    if lines().any(|l| l.starts_with("def ") || l.starts_with("import ") || l.starts_with("from ") || l.starts_with("class ") && l.ends_with(':'))
-        || has("self.") && !has(";")
+    if lines().any(|l| {
+        l.starts_with("def ")
+            || l.starts_with("import ")
+            || l.starts_with("from ")
+            || l.starts_with("class ") && l.ends_with(':')
+    }) || has("self.") && !has(";")
     {
         return Lang::Python;
     }
-    if has("std::") || has("rclcpp") || has("template<") || has("template <") || has("nullptr") || has("__global__")
-        || lines().any(|l| l.starts_with("class ") || l.starts_with("namespace ") || l.starts_with("auto "))
+    if has("std::")
+        || has("rclcpp")
+        || has("template<")
+        || has("template <")
+        || has("nullptr")
+        || has("__global__")
+        || lines().any(|l| {
+            l.starts_with("class ") || l.starts_with("namespace ") || l.starts_with("auto ")
+        })
     {
         return Lang::Cpp;
     }
@@ -215,9 +255,15 @@ fn frames_of(text: &str) -> Vec<Frame> {
                 file,
                 line: c.name("line").and_then(|m| m.as_str().parse().ok()),
                 col: c.name("col").and_then(|m| m.as_str().parse().ok()),
-                func: c.name("func").map(|m| m.as_str().to_string()).or_else(|| func_ctx.clone()),
+                func: c
+                    .name("func")
+                    .map(|m| m.as_str().to_string())
+                    .or_else(|| func_ctx.clone()),
                 kind,
-                message: c.name("msg").map(|m| m.as_str().trim().to_string()).filter(|m| !m.is_empty()),
+                message: c
+                    .name("msg")
+                    .map(|m| m.as_str().trim().to_string())
+                    .filter(|m| !m.is_empty()),
             });
             break;
         }
@@ -237,7 +283,11 @@ pub fn parse(input: &str, force: Option<Kind>, hint: Option<Lang>) -> Parsed {
     let text = clean(input);
     let frames = frames_of(&text);
     let looks_error = !frames.is_empty() || ERROR_WORDS.is_match(&text);
-    let kind = force.unwrap_or(if looks_error && hint.is_none() { Kind::Error } else { Kind::Code });
+    let kind = force.unwrap_or(if looks_error && hint.is_none() {
+        Kind::Error
+    } else {
+        Kind::Code
+    });
 
     if kind == Kind::Code {
         let (body, first_line) = match strip_listing(&text) {
@@ -271,7 +321,11 @@ pub fn parse(input: &str, force: Option<Kind>, hint: Option<Lang>) -> Parsed {
     let mut fragments: Vec<String> = Vec::new();
     for f in &frames {
         if let Some(func) = &f.func {
-            let base = func.rsplit("::").next().unwrap_or(func).trim_end_matches("()");
+            let base = func
+                .rsplit("::")
+                .next()
+                .unwrap_or(func)
+                .trim_end_matches("()");
             if base.len() >= 3 && !NOT_SYMBOLS.contains(&base) && !base.starts_with('<') {
                 push_unique(&mut symbols, base);
             }
@@ -280,7 +334,10 @@ pub fn parse(input: &str, force: Option<Kind>, hint: Option<Lang>) -> Parsed {
     for line in formatted.lines() {
         for c in QUOTED_IDENT.captures_iter(line) {
             let id = c["id"].rsplit("::").next().unwrap_or(&c["id"]);
-            if id.len() >= 3 && !NOT_SYMBOLS.contains(&id) && !id.chars().all(|c| c.is_ascii_digit()) {
+            if id.len() >= 3
+                && !NOT_SYMBOLS.contains(&id)
+                && !id.chars().all(|c| c.is_ascii_digit())
+            {
                 push_unique(&mut symbols, id);
             }
         }
@@ -297,8 +354,11 @@ pub fn parse(input: &str, force: Option<Kind>, hint: Option<Lang>) -> Parsed {
     }
     // Message text that may be a string literal in the code: runtime log lines
     // and exception messages (not compiler diagnostics, which come from the tool).
-    let compiler_lines: std::collections::HashSet<u32> =
-        frames.iter().filter(|f| f.file.is_some()).map(|f| f.input_line).collect();
+    let compiler_lines: std::collections::HashSet<u32> = frames
+        .iter()
+        .filter(|f| f.file.is_some())
+        .map(|f| f.input_line)
+        .collect();
     for (i, line) in formatted.lines().enumerate() {
         if compiler_lines.contains(&(i as u32 + 1)) {
             continue;
@@ -311,7 +371,10 @@ pub fn parse(input: &str, force: Option<Kind>, hint: Option<Lang>) -> Parsed {
             continue;
         };
         for part in VOLATILE_PART.split(&msg) {
-            let p = part.trim().trim_matches(|c: char| c.is_ascii_punctuation() && c != '_').trim();
+            let p = part
+                .trim()
+                .trim_matches(|c: char| c.is_ascii_punctuation() && c != '_')
+                .trim();
             if p.chars().count() >= 8 && p.contains(' ') {
                 push_unique(&mut fragments, p);
             }
@@ -320,8 +383,19 @@ pub fn parse(input: &str, force: Option<Kind>, hint: Option<Lang>) -> Parsed {
     fragments.sort_by_key(|f| std::cmp::Reverse(f.len()));
     fragments.truncate(6);
     symbols.truncate(12);
-    let lang = frames.iter().find_map(|f| f.file.as_deref().and_then(lang_of_file)).map(Lang::as_str);
-    Parsed { kind, lang, formatted, first_line: 1, frames, symbols, fragments }
+    let lang = frames
+        .iter()
+        .find_map(|f| f.file.as_deref().and_then(lang_of_file))
+        .map(Lang::as_str);
+    Parsed {
+        kind,
+        lang,
+        formatted,
+        first_line: 1,
+        frames,
+        symbols,
+        fragments,
+    }
 }
 
 #[cfg(test)]
@@ -335,10 +409,23 @@ mod tests {
         assert_eq!(p.kind, Kind::Error);
         assert!(!p.formatted.contains('\x1b'));
         let f = &p.frames[0];
-        assert_eq!((f.file.as_deref(), f.line, f.col, f.kind), (Some("/home/u/fw/src/led.c"), Some(24), Some(30), "warning"));
+        assert_eq!(
+            (f.file.as_deref(), f.line, f.col, f.kind),
+            (Some("/home/u/fw/src/led.c"), Some(24), Some(30), "warning")
+        );
         assert_eq!(f.func.as_deref(), Some("main"));
-        assert!(p.frames.iter().any(|f| f.file.as_deref() == Some("led.c") && f.kind == "error"), "{:?}", p.frames);
-        assert!(p.symbols.contains(&"dma_channel_configure".to_string()), "{:?}", p.symbols);
+        assert!(
+            p.frames
+                .iter()
+                .any(|f| f.file.as_deref() == Some("led.c") && f.kind == "error"),
+            "{:?}",
+            p.frames
+        );
+        assert!(
+            p.symbols.contains(&"dma_channel_configure".to_string()),
+            "{:?}",
+            p.symbols
+        );
         assert!(!p.symbols.contains(&"main".to_string()));
         assert_eq!(p.lang, Some("c"));
     }
@@ -349,25 +436,64 @@ mod tests {
         let p = parse(log, None, None);
         assert_eq!(p.kind, Kind::Error);
         let files: Vec<_> = p.frames.iter().filter_map(|f| f.file.as_deref()).collect();
-        assert_eq!(files, ["/ws/src/bot/bot/driver.py", "/usr/lib/python3/dist-packages/serial/serialposix.py"]);
+        assert_eq!(
+            files,
+            [
+                "/ws/src/bot/bot/driver.py",
+                "/usr/lib/python3/dist-packages/serial/serialposix.py"
+            ]
+        );
         assert_eq!(p.frames[0].func.as_deref(), Some("on_cmd"));
         assert!(p.frames.iter().any(|f| f.kind == "exception"));
         assert!(p.symbols.contains(&"on_cmd".to_string()));
-        assert!(p.fragments.iter().any(|f| f == "Failed to open device"), "{:?}", p.fragments);
-        assert!(p.fragments.iter().any(|f| f.starts_with("write failed")), "{:?}", p.fragments);
+        assert!(
+            p.fragments.iter().any(|f| f == "Failed to open device"),
+            "{:?}",
+            p.fragments
+        );
+        assert!(
+            p.fragments.iter().any(|f| f.starts_with("write failed")),
+            "{:?}",
+            p.fragments
+        );
         assert_eq!(p.lang, Some("python"));
     }
 
     #[test]
     fn pioasm_gdb_and_rust() {
-        let p = parse("ws2812.pio:11.27-30: error: delay too large (max 15)\n", None, None);
-        assert_eq!((p.frames[0].file.as_deref(), p.frames[0].line, p.frames[0].kind), (Some("ws2812.pio"), Some(11), "error"));
-        let p = parse("#0  0x10000356 in isr_hardfault ()\n#1  0x100002f0 in dma_handler () at /fw/src/led.c:17\n", None, None);
+        let p = parse(
+            "ws2812.pio:11.27-30: error: delay too large (max 15)\n",
+            None,
+            None,
+        );
+        assert_eq!(
+            (
+                p.frames[0].file.as_deref(),
+                p.frames[0].line,
+                p.frames[0].kind
+            ),
+            (Some("ws2812.pio"), Some(11), "error")
+        );
+        let p = parse(
+            "#0  0x10000356 in isr_hardfault ()\n#1  0x100002f0 in dma_handler () at /fw/src/led.c:17\n",
+            None,
+            None,
+        );
         assert_eq!(p.frames.len(), 1);
-        assert_eq!((p.frames[0].func.as_deref(), p.frames[0].line), (Some("dma_handler"), Some(17)));
+        assert_eq!(
+            (p.frames[0].func.as_deref(), p.frames[0].line),
+            (Some("dma_handler"), Some(17))
+        );
         assert!(p.symbols.contains(&"dma_handler".to_string()));
-        let p = parse("thread 'main' panicked at src/rag.rs:120:9:\nindex out of bounds\n", None, None);
-        assert_eq!((p.frames[0].file.as_deref(), p.frames[0].line), (Some("src/rag.rs"), Some(120)));
+        let p = parse(
+            "thread 'main' panicked at src/rag.rs:120:9:\nindex out of bounds\n",
+            None,
+            None,
+        );
+        assert_eq!(
+            (p.frames[0].file.as_deref(), p.frames[0].line),
+            (Some("src/rag.rs"), Some(120))
+        );
     }
 
     #[test]
@@ -375,14 +501,29 @@ mod tests {
         let code = "    for (int i = 0; i < n; i++) {\r\n        sum += a[i];\r\n    }\r\n\r\n";
         let p = parse(code, None, None);
         assert_eq!(p.kind, Kind::Code);
-        assert_eq!(p.formatted, "for (int i = 0; i < n; i++) {\n    sum += a[i];\n}");
+        assert_eq!(
+            p.formatted,
+            "for (int i = 0; i < n; i++) {\n    sum += a[i];\n}"
+        );
         assert_eq!(p.lang, Some("c"));
         let listing = "  24 |     if (x & 0x4 == 0) {\n  25 |         y = 1;\n  26 |     }\n";
         let p = parse(listing, Some(Kind::Code), None);
-        assert_eq!((p.formatted.as_str(), p.first_line), ("if (x & 0x4 == 0) {\n    y = 1;\n}", 24));
-        assert_eq!(guess_lang(".program ws\n.side_set 1\n  out x, 1 side 0 [2]\n"), Lang::Pio);
-        assert_eq!(guess_lang("def cb(self, msg):\n    time.sleep(1)\n"), Lang::Python);
-        assert_eq!(guess_lang("auto sub = create_subscription<std_msgs::msg::String>(\"t\", 10, cb);"), Lang::Cpp);
+        assert_eq!(
+            (p.formatted.as_str(), p.first_line),
+            ("if (x & 0x4 == 0) {\n    y = 1;\n}", 24)
+        );
+        assert_eq!(
+            guess_lang(".program ws\n.side_set 1\n  out x, 1 side 0 [2]\n"),
+            Lang::Pio
+        );
+        assert_eq!(
+            guess_lang("def cb(self, msg):\n    time.sleep(1)\n"),
+            Lang::Python
+        );
+        assert_eq!(
+            guess_lang("auto sub = create_subscription<std_msgs::msg::String>(\"t\", 10, cb);"),
+            Lang::Cpp
+        );
         // A code snippet that merely mentions "error" stays code when a language is given.
         let p = parse("printf(\"error: %d\\n\", e);", None, Some(Lang::C));
         assert_eq!(p.kind, Kind::Code);

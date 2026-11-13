@@ -272,6 +272,28 @@ Firefox 會攔截 `Ctrl+Shift+P`（開啟隱私視窗），請改用 `F1` 或 `C
 - **在哪裡看**：IDE 版面的編輯器左側有標記，滑鼠移上去看說明；問題面板可切換「目前檔案／整個雲端」。
 - **API**：`/api/v1/code/findings`、`/code/duplicates`、`/code/symbols`，見 [docs/API.md](docs/API.md)。
 
+### 診斷／優化模式
+
+按標題列的脈搏圖示，或 `Ctrl+Shift+D`（指令面板：「診斷／優化模式」）。貼上錯誤訊息或一段程式碼，`Ctrl+Enter` 分析。
+不保存任何紀錄：結果只留在這個分頁的記憶體裡，重新整理就清除；伺服器也不寫 log。
+
+- **自動判斷**輸入是錯誤訊息還是程式碼（也可手動指定），並整理格式：去掉終端機顏色碼、共同縮排、貼上時帶進來的行號。
+- **左半邊：對應的程式碼**（每處附前後幾行，按「開啟」跳到該行）
+  - 錯誤位置：GCC／Clang、連結器、pioasm、CMake、Python traceback、GDB backtrace、Rust panic 的 `檔案:行號`，依路徑結尾比對雲端裡的檔案（本機路徑與雲端路徑不同也找得到）。
+  - 定義：錯誤訊息裡提到的函式、變數（例如 `undefined reference to 'x'`）在哪裡定義。
+  - 訊息出處：執行期訊息（ROS 2 log、例外訊息）在原始碼中印出或拋出的位置，數字與路徑等變動部分會先去掉。
+  - 程式碼輸入：這段程式碼在雲端的哪裡（改過名稱也找得到）、意思相近的實作、它呼叫的函式與誰呼叫它，以及這段程式碼本身的靜態分析結果。
+- **右半邊：解決方式與筆記**
+  - 內建約 25 種常見錯誤的說明與修法（不使用 LLM），偏重 C／C++ 工具鏈、Pico SDK（例如 `undefined reference` 會直接指出要加哪個 `hardware_xxx` 函式庫與標頭）、PIO、HardFault、ROS 2（QoS、executor、TF）、OpenMP、CUDA、Python。
+  - 相關靜態分析規則的修正建議。
+  - **相關筆記**：Markdown 筆記中提到規則代號（例如 `omp-race`、`bit-precedence`）、函式名稱、錯誤訊息或例外名稱就會被找到，顯示該段落（依標題切出）。啟用語意搜尋時，也會列出意思相近的筆記。
+- **相似程式碼搜尋**使用程式碼專用的嵌入模型 `jina-embeddings-v2-base-code`（int8，約 160 MB，768 維）：
+  - 每個函式／方法／PIO 程式一個片段，函式外的程式碼以 40 行為單位，向量以 int8 存在 SQLite 並載入記憶體比對。
+  - 與文字模型一樣在建置映像時下載（固定版本、驗證 SHA-256），執行時不連網；第一次使用時載入，閒置後卸載（`MISTBOX_RAG_IDLE_UNLOAD_SECS`）。
+  - 實測載入約 0.5 秒、記憶體約 225 MB；一段程式碼推論約 30 ms。
+  - 使用同一套可攜式 ONNX Runtime，**不需要 AVX2**（已用模擬的 Nehalem CPU 驗證）。用 `docker compose exec app mistbox rag selftest` 可以在你的機器上確認兩個模型都能執行。
+  - 不需要時在 `.env` 設 `MISTBOX_CODE_MODEL=off` 再 `docker compose up -d --build`，診斷模式其他功能照常。
+
 ## 4. 來源資料夾匯入
 
 把主機上的資料夾（例如目前這個專案資料夾）匯入雲端。匯入期間**來源只以唯讀方式掛載**，並以 `O_RDONLY|O_NOFOLLOW` 開啟，不會移動、修改或刪除任何來源檔案。

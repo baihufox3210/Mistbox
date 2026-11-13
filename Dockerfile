@@ -57,8 +57,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 ############################ embedding model (downloaded at build time only)
 FROM rust AS model
 ARG EMBED_MODEL=multilingual-e5-small-q8
+# Code model for similar-code search in the diagnose mode (needs the embed build).
+ARG CODE_MODEL=jina-code-q8
 RUN mkdir -p /models && if [ "$EMBED_MODEL" != off ]; then \
-      MISTBOX_RAG_MODEL_DIR=/models mistbox rag download-model "$EMBED_MODEL"; fi
+      MISTBOX_RAG_MODEL_DIR=/models mistbox rag download-model "$EMBED_MODEL" \
+   && if [ "$CODE_MODEL" != off ]; then \
+        MISTBOX_RAG_MODEL_DIR=/models mistbox rag download-model "$CODE_MODEL"; fi; fi
 
 ############################ app
 FROM debian:trixie-slim AS app
@@ -71,6 +75,7 @@ RUN groupadd -g 10001 mistbox \
  && useradd -u 10001 -g 10001 -M -d /nonexistent -s /usr/sbin/nologin mistbox \
  && mkdir -p /data && chown 10001:10001 /data && chmod 2775 /data
 ARG EMBED_MODEL=multilingual-e5-small-q8
+ARG CODE_MODEL=jina-code-q8
 COPY --from=onnxruntime /opt/onnxruntime/lib/ /opt/onnxruntime/lib/
 COPY --from=rust /usr/local/bin/mistbox /usr/local/bin/mistbox
 COPY --from=model /models /app/models
@@ -83,6 +88,7 @@ ENV MISTBOX_DATA_DIR=/data \
     MISTBOX_STATIC_DIR=/app/web \
     MISTBOX_THEME_DIR=/app/theme \
     MISTBOX_RAG_MODEL=${EMBED_MODEL} \
+    MISTBOX_CODE_MODEL=${CODE_MODEL} \
     MISTBOX_RAG_MODEL_DIR=/app/models \
     HF_HUB_OFFLINE=1 \
     MALLOC_ARENA_MAX=2

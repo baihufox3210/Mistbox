@@ -57,7 +57,7 @@ pub trait Embedder: Send + Sync {
     fn embed(&self, texts: &[String], query: bool) -> anyhow::Result<Vec<Vec<f32>>>;
 }
 
-fn normalise(v: &mut [f32]) {
+pub(crate) fn normalise(v: &mut [f32]) {
     let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
     if n > 0.0 {
         v.iter_mut().for_each(|x| *x /= n);
@@ -165,7 +165,7 @@ pub const MODELS: &[(&str, &str, &str, &str)] = &[
 pub const DEFAULT_MODEL: &str = "multilingual-e5-small-q8";
 
 #[cfg(feature = "embed")]
-mod fast {
+pub(crate) mod fast {
     use std::{
         io::Read,
         path::Path,
@@ -202,7 +202,7 @@ mod fast {
         Repo::with_revision(Q8_REPO.into(), RepoType::Model, Q8_REV.into())
     }
 
-    fn sha256_file(p: &Path) -> anyhow::Result<String> {
+    pub(crate) fn sha256_file(p: &Path) -> anyhow::Result<String> {
         let mut f = std::fs::File::open(p)?;
         let mut h = sha2::Sha256::new();
         let mut buf = vec![0u8; 1 << 20];
@@ -231,11 +231,11 @@ mod fast {
     }
 
     /// CPU execution provider without ONNX Runtime's growing memory arena.
-    fn cpu() -> fastembed::ExecutionProviderDispatch {
+    pub(crate) fn cpu() -> fastembed::ExecutionProviderDispatch {
         ort::ep::CPU::default().with_arena_allocator(false).build()
     }
 
-    fn ort_env() -> anyhow::Result<Environment> {
+    pub(crate) fn ort_env() -> anyhow::Result<Environment> {
         static ENV: OnceLock<Environment> = OnceLock::new();
         if let Some(e) = ENV.get() {
             return Ok(e.clone());
@@ -403,6 +403,9 @@ pub fn model_id(name: &str) -> String {
 
 /// Download a model into `dir` (used at Docker build time; runtime never downloads).
 pub fn download_model(name: &str, dir: &std::path::Path) -> anyhow::Result<()> {
+    if name == crate::code::embed::CODE_MODEL {
+        return crate::code::embed::download(dir);
+    }
     #[cfg(feature = "embed")]
     {
         if name == DEFAULT_MODEL {
@@ -420,8 +423,38 @@ pub fn download_model(name: &str, dir: &std::path::Path) -> anyhow::Result<()> {
     }
 }
 
+/// Load the configured text and code models and embed a sample (`rag selftest`).
+pub fn selftest(text_model: &str, code_model: &str, dir: &std::path::Path) -> anyhow::Result<()> {
+    #[cfg(feature = "embed")]
+    {
+        let text = match text_model {
+            "auto" => DEFAULT_MODEL,
+            m => m,
+        };
+        if text != "off" {
+            let t = std::time::Instant::now();
+            let e = fast::load(text, dir, 1)?;
+            let v = e.embed(&["自我測試 self test".to_string()], true)?;
+            println!("文字模型 {text}：{} 維，{:?}", v[0].len(), t.elapsed());
+        }
+        if !matches!(code_model, "off" | "") {
+            let t = std::time::Instant::now();
+            let m = crate::code::embed::model::CodeModel::load(dir, 1)?;
+            let v = m.embed(&["for (int i = 0; i < n; i++) sum += a[i];".to_string()], false)?;
+            println!("程式碼模型 {}：{} 維，{:?}", crate::code::embed::CODE_MODEL, v[0].len(), t.elapsed());
+        }
+        println!("自我測試通過");
+        Ok(())
+    }
+    #[cfg(not(feature = "embed"))]
+    {
+        let _ = (text_model, code_model, dir);
+        anyhow::bail!("此版本未以 `embed` feature 編譯")
+    }
+}
+
 /// Give freed model memory back to the OS (glibc keeps it otherwise).
-fn trim_heap() {
+pub(crate) fn trim_heap() {
     #[cfg(all(target_os = "linux", target_env = "gnu"))]
     unsafe {
         libc::malloc_trim(0);

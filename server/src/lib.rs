@@ -48,6 +48,8 @@ pub struct AppState {
     pub latex: Option<Arc<latex::LatexClient>>,
     pub rag: Option<Arc<rag::Rag>>,
     pub code: Arc<code::index::CodeIndex>,
+    /// Code embeddings (similar-code search); `None` when disabled.
+    pub code_sem: Option<Arc<code::embed::CodeSemantic>>,
     /// Extra origin allowed in CSP `img-src` (the configured background image).
     pub csp_img_extra: Arc<RwLock<String>>,
 }
@@ -81,6 +83,7 @@ impl AppState {
             latex,
             rag,
             code: Arc::new(code::index::CodeIndex::new()),
+            code_sem: code::embed::CodeSemantic::from_config(&cfg),
             csp_img_extra: Arc::new(RwLock::new(api::settings::csp_origin(
                 bg.as_deref().unwrap_or(""),
             ))),

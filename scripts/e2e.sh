@@ -323,6 +323,13 @@ done
 check "背景分析 C：找到位元運算優先順序錯誤（第 3 行）" bash -c "sget '$BASE/api/v1/code/findings?node_id=$bug' | jq -e '.findings | any(.rule == \"bit-precedence\" and .line == 3)' >/dev/null"
 check "背景分析 PIO：set 超過 31" bash -c "sget '$BASE/api/v1/code/findings?node_id=$(node_id /code/p.pio)' | jq -e '.findings | any(.rule == \"pio-set-range\")' >/dev/null"
 check "規則目錄可讀取" bash -c "sget '$BASE/api/v1/code/rules' | jq -e '.rules | length > 30' >/dev/null"
+check "診斷模式：編譯錯誤對應回雲端檔案與行號" bash -c "spost -H 'content-type: application/json' -d '{\"text\":\"/home/me/x/code/bug.c:3:12: warning: suggest parentheses around comparison in operand of ‘&’\"}' '$BASE/api/v1/code/diagnose' | jq -e '(.locations | any(.reason == \"stack\" and .file.path == \"/code/bug.c\" and .line == 3)) and (.solutions | any(.rule == \"bit-precedence\"))' >/dev/null"
+for _ in $(seq 1 60); do
+  [[ $(sget "$BASE/api/v1/code/status" | jq -r '.semantic.chunks // 0') -gt 0 ]] && break
+  sleep 1
+done
+check "程式碼嵌入模型已建立向量（相似程式碼搜尋）" bash -c "[[ \$(sget '$BASE/api/v1/code/status' | jq -r '.semantic.chunks // 0') -gt 0 ]]"
+check "rag selftest：兩個模型都能在此 CPU 執行" bash -c "$DC exec -T app mistbox rag selftest | grep -q '自我測試通過'"
 
 section "未登入 / 路徑穿越"
 check "未登入列出 → 401" bash -c "[[ \$(status '$BASE/api/v1/nodes/root/children') == 401 ]]"

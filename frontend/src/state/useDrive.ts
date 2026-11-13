@@ -27,6 +27,7 @@ export type Dialog =
   | { t: 'trash' }
   | { t: 'share'; item: NodeInfo }
   | { t: 'shares' }
+  | { t: 'diagnose' }
   | null;
 
 function readUrl() {

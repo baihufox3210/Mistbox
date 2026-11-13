@@ -233,12 +233,86 @@ export interface CodeDuplicate {
   tokens: number;
 }
 
+export interface FileRef {
+  id: string;
+  name: string;
+  path: string;
+}
+
+export interface DiagFrame {
+  input_line: number;
+  file: string | null;
+  line: number | null;
+  col: number | null;
+  func: string | null;
+  kind: 'error' | 'warning' | 'note' | 'exception' | 'frame';
+  message: string | null;
+}
+
+export type LocationReason = 'stack' | 'symbol' | 'text' | 'clone' | 'similar' | 'callee' | 'caller';
+
+export interface DiagLocation {
+  node_id: string;
+  file: FileRef;
+  line: number;
+  line_start: number;
+  line_end: number;
+  reason: LocationReason;
+  label: string;
+  score: number;
+  excerpt: { n: number; text: string }[];
+}
+
+export interface DiagFinding {
+  node_id: string | null;
+  file: FileRef | null;
+  rule: string;
+  severity: Severity;
+  line: number;
+  message: string;
+  symbol: string | null;
+}
+
+export interface DiagSolution {
+  source: 'known' | 'rule';
+  id: string;
+  title: string;
+  steps: string[];
+  rule?: string;
+}
+
+export interface DiagNote {
+  node_id: string;
+  file: FileRef;
+  line: number;
+  heading: string | null;
+  excerpt: string;
+  matched: string[];
+  score: number;
+}
+
+export interface DiagnoseReport {
+  kind: 'error' | 'code';
+  lang: string | null;
+  formatted: string;
+  first_line: number;
+  frames: DiagFrame[];
+  symbols: string[];
+  fragments: string[];
+  locations: DiagLocation[];
+  findings: DiagFinding[];
+  solutions: DiagSolution[];
+  notes: DiagNote[];
+}
+
 export interface CodeStatus {
   state: string;
   files: number;
   pending: number;
   by_lang: Record<string, number>;
   findings: Partial<Record<Severity, number>>;
+  notes: number;
+  semantic: { model: string; model_loaded: boolean; files: number; chunks: number; error: string | null } | null;
 }
 
 async function json<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -318,6 +392,7 @@ export const api = {
   codeDuplicates: (nodeId?: string) =>
     json<{ node: NodeInfo; duplicates: CodeDuplicate[] }>('GET', `${V}/code/duplicates${nodeId ? `?node_id=${q(nodeId)}` : ''}`),
   codeReindex: () => json<{ ok: boolean }>('POST', `${V}/code/reindex`),
+  codeDiagnose: (body: { text: string; mode?: 'auto' | 'error' | 'code'; lang?: string }) => json<DiagnoseReport>('POST', `${V}/code/diagnose`, body),
   ragSearch: (query: string, k = 12) =>
     json<{ results: RagHit[] }>('GET', `${V}/rag/search?q=${q(query)}&k=${k}`),
   ragReindex: () => json<{ ok: boolean }>('POST', `${V}/rag/reindex`),

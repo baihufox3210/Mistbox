@@ -171,7 +171,9 @@ const KNOWN: &[Known] = &[
         id: "pio-delay",
         re: r"(?i)delay (?:too large|out of range)|side[- ]set (?:value )?(?:too large|out of range)",
         title: "PIO 延遲或 side-set 超出範圍",
-        steps: &["延遲與 side-set 共用 5 個位元：`.side_set N`（`opt` 再加 1）後，延遲最大 2^(5 - N) - 1。較長的延遲改用迴圈或降低 `clkdiv`。"],
+        steps: &[
+            "延遲與 side-set 共用 5 個位元：`.side_set N`（`opt` 再加 1）後，延遲最大 2^(5 - N) - 1。較長的延遲改用迴圈或降低 `clkdiv`。",
+        ],
         rule: Some("pio-delay-overflow"),
         lib_hint: false,
     },
@@ -309,7 +311,8 @@ const KNOWN: &[Known] = &[
     },
 ];
 
-static COMPILED: LazyLock<Vec<Regex>> = LazyLock::new(|| KNOWN.iter().map(|k| Regex::new(k.re).unwrap()).collect());
+static COMPILED: LazyLock<Vec<Regex>> =
+    LazyLock::new(|| KNOWN.iter().map(|k| Regex::new(k.re).unwrap()).collect());
 
 /// (library for `target_link_libraries`, header) for a Pico SDK / common symbol.
 pub fn library_for(sym: &str) -> Option<(&'static str, Option<&'static str>)> {
@@ -328,7 +331,11 @@ pub fn library_for(sym: &str) -> Option<(&'static str, Option<&'static str>)> {
         ("clock_", "hardware_clocks", Some("hardware/clocks.h")),
         ("clocks_", "hardware_clocks", Some("hardware/clocks.h")),
         ("flash_range_", "hardware_flash", Some("hardware/flash.h")),
-        ("watchdog_", "hardware_watchdog", Some("hardware/watchdog.h")),
+        (
+            "watchdog_",
+            "hardware_watchdog",
+            Some("hardware/watchdog.h"),
+        ),
         ("interp_", "hardware_interp", Some("hardware/interp.h")),
         ("hw_claim", "hardware_claim", Some("hardware/claim.h")),
         ("multicore_", "pico_multicore", Some("pico/multicore.h")),
@@ -344,7 +351,9 @@ pub fn library_for(sym: &str) -> Option<(&'static str, Option<&'static str>)> {
         ("pthread_", "Threads::Threads", Some("pthread.h")),
         ("cuda", "CUDA::cudart", Some("cuda_runtime.h")),
     ];
-    MAP.iter().find(|(p, _, _)| sym.starts_with(p)).map(|(_, l, h)| (*l, *h))
+    MAP.iter()
+        .find(|(p, _, _)| sym.starts_with(p))
+        .map(|(_, l, h)| (*l, *h))
 }
 
 /// Known errors found in `text` (each at most once).
@@ -355,22 +364,30 @@ pub fn known(text: &str) -> Vec<Solution> {
         let cap = c.get(1).map(|m| m.as_str()).unwrap_or("");
         let fill = |s: &str| s.replace("{1}", cap);
         let mut steps: Vec<String> = Vec::new();
-        if k.lib_hint {
-            if let Some((lib, header)) = library_for(cap) {
-                let mut s = format!("`{cap}` 來自 `{lib}`：在 CMakeLists.txt 加上 `target_link_libraries(<target> {lib})`");
-                if let Some(h) = header {
-                    s.push_str(&format!("，並 `#include \"{h}\"`"));
-                }
-                s.push('。');
-                steps.push(s);
+        if k.lib_hint
+            && let Some((lib, header)) = library_for(cap)
+        {
+            let mut s = format!(
+                "`{cap}` 來自 `{lib}`：在 CMakeLists.txt 加上 `target_link_libraries(<target> {lib})`"
+            );
+            if let Some(h) = header {
+                s.push_str(&format!("，並 `#include \"{h}\"`"));
             }
+            s.push('。');
+            steps.push(s);
         }
         steps.extend(k.steps.iter().map(|s| fill(s)));
         let id = k.id.to_string();
         if out.iter().any(|x| x.id == id) {
             continue;
         }
-        out.push(Solution { source: "known", id, title: fill(k.title), steps, rule: k.rule });
+        out.push(Solution {
+            source: "known",
+            id,
+            title: fill(k.title),
+            steps,
+            rule: k.rule,
+        });
     }
     out
 }
@@ -381,26 +398,62 @@ mod tests {
 
     #[test]
     fn known_errors_with_library_hints() {
-        let s = known("led.c:(.text.main+0x1c): undefined reference to `dma_channel_configure'\ncollect2: error: ld returned 1 exit status");
+        let s = known(
+            "led.c:(.text.main+0x1c): undefined reference to `dma_channel_configure'\ncollect2: error: ld returned 1 exit status",
+        );
         assert_eq!(s.len(), 1);
-        assert_eq!(s[0].title, "連結錯誤：找不到 `dma_channel_configure` 的實作");
-        assert!(s[0].steps[0].contains("hardware_dma") && s[0].steps[0].contains("hardware/dma.h"), "{:?}", s[0].steps);
+        assert_eq!(
+            s[0].title,
+            "連結錯誤：找不到 `dma_channel_configure` 的實作"
+        );
+        assert!(
+            s[0].steps[0].contains("hardware_dma") && s[0].steps[0].contains("hardware/dma.h"),
+            "{:?}",
+            s[0].steps
+        );
 
-        let s = known("main.c:5:5: warning: implicit declaration of function ‘pio_sm_put_blocking’ [-Wimplicit-function-declaration]");
+        let s = known(
+            "main.c:5:5: warning: implicit declaration of function ‘pio_sm_put_blocking’ [-Wimplicit-function-declaration]",
+        );
         assert_eq!(s[0].id, "implicit-declaration");
         assert!(s[0].steps[0].contains("hardware_pio"));
 
-        let s = known("led.c:24:30: warning: suggest parentheses around comparison in operand of ‘&’ [-Wparentheses]");
-        assert_eq!((s[0].id.as_str(), s[0].rule), ("parentheses-bitwise", Some("bit-precedence")));
+        let s = known(
+            "led.c:24:30: warning: suggest parentheses around comparison in operand of ‘&’ [-Wparentheses]",
+        );
+        assert_eq!(
+            (s[0].id.as_str(), s[0].rule),
+            ("parentheses-bitwise", Some("bit-precedence"))
+        );
 
         let ids = |t: &str| known(t).into_iter().map(|s| s.id).collect::<Vec<_>>();
-        assert_eq!(ids("ModuleNotFoundError: No module named 'rclpy'"), ["python-module"]);
-        assert_eq!(ids("[WARN] [1.2] [listener]: New publisher discovered on topic '/scan', offering incompatible QoS."), ["ros-qos"]);
-        assert_eq!(ids("ws2812.pio:11.27-30: error: delay too large (max 15)"), ["pio-delay"]);
-        assert_eq!(ids("CUDA error: an illegal memory access was encountered"), ["cuda-illegal-address"]);
-        assert_eq!(ids("Program received signal SIGSEGV, Segmentation fault."), ["segfault"]);
+        assert_eq!(
+            ids("ModuleNotFoundError: No module named 'rclpy'"),
+            ["python-module"]
+        );
+        assert_eq!(
+            ids(
+                "[WARN] [1.2] [listener]: New publisher discovered on topic '/scan', offering incompatible QoS."
+            ),
+            ["ros-qos"]
+        );
+        assert_eq!(
+            ids("ws2812.pio:11.27-30: error: delay too large (max 15)"),
+            ["pio-delay"]
+        );
+        assert_eq!(
+            ids("CUDA error: an illegal memory access was encountered"),
+            ["cuda-illegal-address"]
+        );
+        assert_eq!(
+            ids("Program received signal SIGSEGV, Segmentation fault."),
+            ["segfault"]
+        );
         assert!(ids("all good").is_empty());
-        assert_eq!(library_for("multicore_launch_core1"), Some(("pico_multicore", Some("pico/multicore.h"))));
+        assert_eq!(
+            library_for("multicore_launch_core1"),
+            Some(("pico_multicore", Some("pico/multicore.h")))
+        );
         assert_eq!(library_for("my_func"), None);
     }
 }

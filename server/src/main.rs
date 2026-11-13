@@ -62,6 +62,9 @@ enum RagCmd {
     Status,
     /// List supported models.
     Models,
+    /// Load the configured models (text and code) from MISTBOX_RAG_MODEL_DIR and
+    /// embed a sample: checks that this CPU can run them (no network access).
+    Selftest,
 }
 
 #[derive(Subcommand)]
@@ -224,6 +227,10 @@ async fn main() -> anyhow::Result<()> {
                 tokio::task::spawn_blocking(move || mistbox::rag::download_model(&model, &dir))
                     .await?
             }
+            RagCmd::Selftest => {
+                let (text, code, dir) = (cfg.rag_model.clone(), cfg.code_model.clone(), cfg.rag_model_dir.clone());
+                tokio::task::spawn_blocking(move || mistbox::rag::selftest(&text, &code, &dir)).await?
+            }
             RagCmd::Models => {
                 for (name, desc, _, _) in mistbox::rag::MODELS {
                     println!("{name:34} {desc}");
@@ -287,7 +294,7 @@ async fn serve(cfg: Config) -> anyhow::Result<()> {
         Some(r) => r.spawn(state.db.clone(), state.store.clone()),
         None => tracing::warn!("語意搜尋停用（MISTBOX_RAG_MODEL=off，或未以 embed feature 編譯）"),
     }
-    state.code.spawn(state.db.clone(), state.store.clone());
+    state.code.spawn(state.db.clone(), state.store.clone(), state.code_sem.clone());
 
     // Background maintenance: blob GC and expired sessions.
     {

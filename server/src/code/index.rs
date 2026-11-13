@@ -79,7 +79,13 @@ impl CodeIndex {
         *self.state.read().unwrap()
     }
 
-    pub fn spawn(self: &std::sync::Arc<Self>, db: SqlitePool, store: Store) {
+    /// Background loop: analyse changed files, then (if enabled) embed them.
+    pub fn spawn(
+        self: &std::sync::Arc<Self>,
+        db: SqlitePool,
+        store: Store,
+        sem: Option<std::sync::Arc<super::embed::CodeSemantic>>,
+    ) {
         let me = self.clone();
         tokio::spawn(async move {
             loop {
@@ -88,6 +94,15 @@ impl CodeIndex {
                     Ok(n) if n > 0 => tracing::info!(files = n, "code index updated"),
                     Ok(_) => {}
                     Err(e) => tracing::warn!(error = %e, "code indexing pass failed"),
+                }
+                if let Some(sem) = &sem {
+                    *me.state.write().unwrap() = "embedding";
+                    match sem.index_pending(&db).await {
+                        Ok(n) if n > 0 => tracing::info!(files = n, "code embeddings updated"),
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!(error = %e, "code embedding pass failed"),
+                    }
+                    sem.maybe_unload();
                 }
                 *me.state.write().unwrap() = "ready";
                 let _ = tokio::time::timeout(Duration::from_secs(60), me.wake.notified()).await;
@@ -448,8 +463,16 @@ pub async fn status(db: &SqlitePool, idx: &CodeIndex) -> anyhow::Result<Status> 
     .await?;
     Ok(Status {
         state: idx.state(),
-        files: by_lang.iter().filter(|x| x.0 != "markdown").map(|x| x.1).sum(),
-        notes: by_lang.iter().filter(|x| x.0 == "markdown").map(|x| x.1).sum(),
+        files: by_lang
+            .iter()
+            .filter(|x| x.0 != "markdown")
+            .map(|x| x.1)
+            .sum(),
+        notes: by_lang
+            .iter()
+            .filter(|x| x.0 == "markdown")
+            .map(|x| x.1)
+            .sum(),
         pending,
         by_lang: by_lang.into_iter().collect(),
         findings: findings.into_iter().collect(),

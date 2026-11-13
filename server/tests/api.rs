@@ -2093,7 +2093,9 @@ async fn share_links_view_edit_expiry_and_isolation() {
     assert_eq!(s["node"]["path"], "/proj");
 
     // A wrong secret or a malformed token is rejected the same way.
-    let bad = format!("{}0", &tok[..tok.len() - 1]);
+    // Change the last hex digit (to something different from what it was).
+    let last = if tok.ends_with('0') { '1' } else { '0' };
+    let bad = format!("{}{last}", &tok[..tok.len() - 1]);
     for token in [bad.as_str(), "mbs_zz_zz", "garbage"] {
         let r = as_share(
             &t,
@@ -2323,4 +2325,96 @@ async fn code_index_findings_duplicates_symbols_and_scope() {
     t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
     let r = t.admin(Method::GET, "/api/v1/code/duplicates", None).await;
     assert_eq!(r.json()["duplicates"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn diagnose_mode_locates_code_fixes_and_notes() {
+    let t = T::new().await;
+    let fw = t.mkdir("root", "fw").await;
+    let src = t.mkdir(&fw, "src").await;
+    let notes = t.mkdir("root", "notes").await;
+    let led = t.upload(&src, "led.c", LED_C.as_bytes()).await.json()["id"].as_str().unwrap().to_string();
+    let drv = t
+        .upload(
+            &fw,
+            "driver.py",
+            b"import serial\n\ndef open_port(path):\n    raise RuntimeError('Failed to open device %s' % path)\n\ndef main():\n    open_port('/dev/ttyACM0')\n",
+        )
+        .await
+        .json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    t.upload(
+        &notes,
+        "bits.md",
+        "# 位元運算筆記\n\n## 優先順序\n`bit-precedence`：`x & MASK == 0` 要加括號。\n\n## DMA\n連結錯誤時記得加 hardware_dma。\n".as_bytes(),
+    )
+    .await;
+    t.upload(&notes, "other.md", b"# Unrelated\nnothing here\n").await;
+    t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
+    let sem = t.state.code_sem.clone().expect("hash code model in tests");
+    assert!(sem.index_pending(&t.state.db).await.unwrap() >= 2);
+
+    let diag = |body: Value| t.admin(Method::POST, "/api/v1/code/diagnose", Some(body));
+
+    // Compiler + linker output: file:line found by path suffix, known fixes, rule note.
+    let log = "/home/me/proj/fw/src/led.c: In function ‘check’:\n/home/me/proj/fw/src/led.c:12:14: warning: suggest parentheses around comparison in operand of ‘&’ [-Wparentheses]\nled.c:(.text+0x1c): undefined reference to `fill_buffer'\n";
+    let r = diag(json!({ "text": log })).await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    let v = r.json();
+    assert_eq!(v["kind"], "error");
+    let locs = v["locations"].as_array().unwrap();
+    let stack = locs.iter().find(|l| l["reason"] == "stack").expect("stack location");
+    assert_eq!((stack["file"]["path"].as_str(), stack["line"].as_i64()), (Some("/fw/src/led.c"), Some(12)));
+    assert!(stack["excerpt"].as_array().unwrap().iter().any(|x| x["n"] == 12 && x["text"].as_str().unwrap().contains("0x4 == 0")));
+    assert!(locs.iter().any(|l| l["reason"] == "symbol" && l["line"] == 3), "definition of fill_buffer: {locs:?}");
+    let sol: Vec<_> = v["solutions"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap().to_string()).collect();
+    assert!(sol.contains(&"undefined-reference".into()) && sol.contains(&"bit-precedence".into()), "{sol:?}");
+    assert!(v["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "bit-precedence" && f["file"]["id"] == led.as_str()));
+    let n = &v["notes"][0];
+    assert_eq!(n["file"]["path"], "/notes/bits.md", "{:?}", v["notes"]);
+    assert_eq!(n["heading"], "優先順序");
+    assert!(n["matched"].as_array().unwrap().iter().any(|m| m == "bit-precedence"));
+
+    // Runtime message: where the string is raised.
+    let r = diag(json!({ "text": "Traceback (most recent call last):\n  File \"x.py\", line 9, in main\nRuntimeError: Failed to open device /dev/ttyUSB3\n" })).await;
+    let v = r.json();
+    assert!(
+        v["locations"].as_array().unwrap().iter().any(|l| l["reason"] == "text" && l["file"]["id"] == drv.as_str() && l["line"] == 4),
+        "{:?}",
+        v["locations"]
+    );
+
+    // Code snippet: formatted, analysed, found in the drive, callers listed.
+    let snippet = "    static void paint(uint32_t *out, int count, uint32_t rgb) {\n        for (int k = 0; k < count; k++) {\n            uint32_t red = (rgb >> 16) & 0xff;\n            uint32_t green = (rgb >> 8) & 0xff;\n            uint32_t blue = rgb & 0xff;\n            out[k] = (green << 24) | (red << 16) | (blue << 8);\n        }\n    }\n    int chk(uint32_t x) { return x & 0x4 == 0; }\n";
+    let r = diag(json!({ "text": snippet })).await;
+    let v = r.json();
+    assert_eq!((v["kind"].as_str(), v["lang"].as_str()), (Some("code"), Some("c")));
+    assert!(v["formatted"].as_str().unwrap().starts_with("static void paint"));
+    assert!(v["findings"].as_array().unwrap().iter().any(|f| f["rule"] == "bit-precedence" && f["line"] == 9 && f["file"].is_null()));
+    assert!(
+        v["locations"].as_array().unwrap().iter().any(|l| l["reason"] == "clone" && l["file"]["id"] == led.as_str()),
+        "{:?}",
+        v["locations"]
+    );
+    assert!(v["notes"].as_array().unwrap().iter().any(|n| n["file"]["path"] == "/notes/bits.md"));
+
+    // Scope: a key limited to /notes never sees /fw code.
+    let k = t.key(json!({"name":"k","permissions":{"list":true,"read":true},"scope_node_id": notes})).await;
+    let r = t.bearer(&k, Method::POST, "/api/v1/code/diagnose", json!({ "text": log }).to_string().into_bytes()).await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    assert!(r.json()["locations"].as_array().unwrap().is_empty(), "{:?}", r.json()["locations"]);
+    assert!(r.json()["findings"].as_array().unwrap().is_empty());
+    // Limits and permissions.
+    let r = diag(json!({ "text": "x".repeat(70 * 1024) })).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    let r = diag(json!({ "text": "a", "mode": "bogus" })).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    let (_, tok, _) = make_share(&t, json!({"node_id": notes})).await;
+    let r = as_share(&t, &tok, Method::POST, "/api/v1/code/diagnose", json!({ "text": log }).to_string().into_bytes()).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    let r = t.admin(Method::GET, "/api/v1/code/status", None).await;
+    assert!(r.json()["semantic"]["chunks"].as_u64().unwrap() > 0, "{:?}", r.json());
+    assert_eq!(r.json()["notes"], 2);
 }

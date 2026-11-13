@@ -13,6 +13,8 @@ services:
       args:
         # Embedding model baked into the image for semantic search (see `mistbox rag models`).
         EMBED_MODEL: ${MISTBOX_RAG_MODEL:-multilingual-e5-small-q8}
+        # Code embedding model for the diagnose mode (similar code); `off` to skip.
+        CODE_MODEL: ${MISTBOX_CODE_MODEL:-jina-code-q8}
     image: mistbox-app:local
     restart: unless-stopped
     ports:

@@ -88,6 +88,7 @@ pub fn router(state: AppState) -> Router {
         .route("/code/duplicates", get(code::duplicates))
         .route("/code/symbols", get(code::symbols))
         .route("/code/reindex", post(code::reindex))
+        .route("/code/diagnose", post(code::diagnose))
         .route("/fs/list", get(fs::list))
         .route("/fs/info", get(fs::info))
         .route("/fs/download", get(fs::download))

@@ -77,6 +77,11 @@ pub struct Config {
     #[arg(long, env = "MISTBOX_RAG_MODEL", default_value = "auto", global = true)]
     pub rag_model: String,
 
+    /// Code embedding model for similar-code search in the diagnose mode:
+    /// `jina-code-q8` (int8, default when built with `embed`), `hash` (tests) or `off`.
+    #[arg(long, env = "MISTBOX_CODE_MODEL", default_value = "auto", global = true)]
+    pub code_model: String,
+
     /// Directory holding downloaded embedding models (baked into the Docker image).
     #[arg(
         long,
@@ -141,6 +146,7 @@ impl Config {
             theme_dir: String::new(),
             trash_days: 30,
             rag_model: "hash".into(),
+            code_model: "hash".into(),
             rag_model_dir: "./models".into(),
             rag_max_file_bytes: 256 * 1024,
             rag_max_pdf_bytes: 4 * 1024 * 1024,

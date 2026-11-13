@@ -281,7 +281,12 @@ pub fn regions(ms: Vec<Match>, same_file: bool) -> Vec<Region> {
 }
 
 /// [`regions`] with explicit thresholds (shorter pasted snippets use lower ones).
-pub fn regions_with(mut ms: Vec<Match>, same_file: bool, min_tokens: u32, min_fps: u32) -> Vec<Region> {
+pub fn regions_with(
+    mut ms: Vec<Match>,
+    same_file: bool,
+    min_tokens: u32,
+    min_fps: u32,
+) -> Vec<Region> {
     if same_file {
         ms.retain(|m| m.a_tok < m.b_tok);
     }

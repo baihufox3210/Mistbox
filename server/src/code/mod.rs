@@ -14,9 +14,11 @@
 
 pub mod clones;
 pub mod diagnose;
+pub mod embed;
 pub mod index;
 pub mod knowledge;
 pub mod pio;
+pub mod resolve;
 pub mod rules;
 pub mod syntax;
 

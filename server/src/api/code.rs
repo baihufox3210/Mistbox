@@ -71,9 +71,12 @@ async fn views(
 
 pub async fn status(State(state): State<AppState>, p: Principal) -> ApiResult<Json<Value>> {
     require_read_flag(&p)?;
-    Ok(Json(
-        serde_json::to_value(index::status(&state.db, &state.code).await?).unwrap(),
-    ))
+    let mut v = serde_json::to_value(index::status(&state.db, &state.code).await?).unwrap();
+    v["semantic"] = match &state.code_sem {
+        Some(s) => serde_json::to_value(s.status()).unwrap(),
+        None => Value::Null,
+    };
+    Ok(Json(v))
 }
 
 /// The rule catalogue (ids, severity, category, title, how to fix).
@@ -216,4 +219,122 @@ pub async fn reindex(State(state): State<AppState>, _s: AdminSession) -> ApiResu
         .await?;
     state.code.poke();
     Ok(Json(json!({ "ok": true })))
+}
+
+#[derive(Deserialize)]
+pub struct DiagnoseBody {
+    text: String,
+    /// "auto" (default), "error" or "code".
+    #[serde(default)]
+    mode: Option<String>,
+    /// Language of a code snippet (c, cpp, python, pio…); default: guessed.
+    #[serde(default)]
+    lang: Option<String>,
+}
+
+/// Diagnose / optimise: paste an error log or a code snippet; get it formatted,
+/// the matching places in the drive (with code excerpts), analysis findings,
+/// known fixes and related Markdown notes. Nothing is stored or logged.
+pub async fn diagnose(
+    State(state): State<AppState>,
+    p: Principal,
+    Json(b): Json<DiagnoseBody>,
+) -> ApiResult<Json<Value>> {
+    let root = target(&state, &p, None).await?;
+    if b.text.trim().is_empty() || b.text.len() > code::diagnose::MAX_INPUT {
+        return Err(ApiError::bad_request(
+            "請貼上 1 字元到 64 KiB 的錯誤訊息或程式碼",
+        ));
+    }
+    let force = match b.mode.as_deref().unwrap_or("auto") {
+        "auto" | "" => None,
+        "error" => Some(code::diagnose::Kind::Error),
+        "code" => Some(code::diagnose::Kind::Code),
+        _ => return Err(ApiError::bad_request("mode 需為 auto、error 或 code")),
+    };
+    let hint = match b.lang.as_deref().filter(|l| !l.is_empty() && *l != "auto") {
+        Some(l) => Some(code::Lang::parse(l).ok_or_else(|| ApiError::bad_request("不支援的語言"))?),
+        None => None,
+    };
+    let text = b.text;
+    let parsed = tokio::task::spawn_blocking(move || code::diagnose::parse(&text, force, hint))
+        .await
+        .map_err(|_| ApiError::internal())?;
+    // Prose query for related notes by meaning (text model), before `parsed` moves.
+    let note_query: String = parsed.formatted.chars().take(500).collect();
+    let ctx = code::resolve::Ctx {
+        db: &state.db,
+        scope: &root.id,
+        sem: state.code_sem.as_deref(),
+    };
+    let mut report = code::resolve::resolve(&ctx, parsed).await?;
+
+    // Notes that are close in meaning (multilingual text model), if enabled.
+    if let Some(rag) = &state.rag
+        && let Ok(hits) = rag.search(&state, &p, &note_query, 12).await
+    {
+        for h in hits
+            .into_iter()
+            .filter(|h| h.node.name.to_ascii_lowercase().ends_with(".md"))
+        {
+            let score = h.score * 2.0;
+            match report.notes.iter_mut().find(|n| n.node_id == h.node.id) {
+                Some(n) => {
+                    n.score += score;
+                    n.matched.push("語意相近".into());
+                }
+                None => {
+                    let body: Option<String> =
+                        sqlx::query_scalar("SELECT body FROM code_text WHERE node_id = ?")
+                            .bind(&h.node.id)
+                            .fetch_optional(&state.db)
+                            .await?;
+                    let line = h.line_start.max(1) as u32;
+                    let (heading, excerpt) = match body {
+                        Some(b) => code::resolve::section(&b, line),
+                        None => (None, h.text.chars().take(1200).collect()),
+                    };
+                    report.notes.push(code::resolve::Note {
+                        node_id: h.node.id.clone(),
+                        line,
+                        heading,
+                        excerpt,
+                        matched: vec!["語意相近".into()],
+                        score,
+                    });
+                }
+            }
+        }
+        report.notes.sort_by(|a, b| b.score.total_cmp(&a.score));
+        report.notes.truncate(8);
+    }
+
+    let ids = report
+        .locations
+        .iter()
+        .map(|l| l.node_id.clone())
+        .chain(report.notes.iter().map(|n| n.node_id.clone()))
+        .chain(report.findings.iter().filter_map(|f| f.node_id.clone()));
+    let files = views(&state, &p, ids).await?;
+    let mut v = serde_json::to_value(&report).unwrap();
+    let file = |id: &str| {
+        files
+            .get(id)
+            .map(|f| json!({ "id": f.id, "name": f.name, "path": f.path }))
+    };
+    for (key, idk) in [
+        ("locations", "node_id"),
+        ("notes", "node_id"),
+        ("findings", "node_id"),
+    ] {
+        if let Some(arr) = v[key].as_array_mut() {
+            arr.retain(|x| x[idk].is_null() || x[idk].as_str().and_then(file).is_some());
+            for x in arr.iter_mut() {
+                if let Some(id) = x[idk].as_str().map(str::to_string) {
+                    x["file"] = file(&id).unwrap_or(Value::Null);
+                }
+            }
+        }
+    }
+    Ok(Json(v))
 }
