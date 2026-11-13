@@ -10,6 +10,7 @@
 //! - `index`   background indexer and queries over the stored results
 //! - `diagnose` diagnose / optimise mode: parse pasted errors and code
 //! - `knowledge` built-in explanations for common error messages
+//! - `notes`   front-matter tags linking Markdown notes to rules / errors
 //! - `resolve` look parsed input up in the index (locations, notes)
 
 pub mod clones;
@@ -17,6 +18,7 @@ pub mod diagnose;
 pub mod embed;
 pub mod index;
 pub mod knowledge;
+pub mod notes;
 pub mod pio;
 pub mod resolve;
 pub mod rules;
@@ -25,7 +27,7 @@ pub mod syntax;
 use serde::Serialize;
 
 /// Bump to re-analyse every file after changing rules or the fingerprinting.
-pub const ENGINE: i64 = 2;
+pub const ENGINE: i64 = 3;
 /// Larger files are not analysed.
 pub const MAX_FILE_BYTES: i64 = 1024 * 1024;
 

@@ -392,6 +392,26 @@ export const api = {
   codeDuplicates: (nodeId?: string) =>
     json<{ node: NodeInfo; duplicates: CodeDuplicate[] }>('GET', `${V}/code/duplicates${nodeId ? `?node_id=${q(nodeId)}` : ''}`),
   codeReindex: () => json<{ ok: boolean }>('POST', `${V}/code/reindex`),
+  /** Notes linked by front matter (`rules:`, `known:`, `symbols:`). */
+  codeNotes: (by: { rule?: string; known?: string; symbol?: string }) =>
+    json<{ notes: NodeInfo[] }>('GET', `${V}/code/notes?${new URLSearchParams(by as Record<string, string>)}`),
+  infoPath: (path: string) => json<NodeInfo>('GET', `${V}/fs/info?path=${q(path)}`),
+  /** Create a text file at a path (missing folders are created); 409 if it exists. */
+  createTextAt: async (path: string, text: string): Promise<NodeInfo> => {
+    let res: Response;
+    try {
+      res = await fetch(`${V}/fs/upload?path=${q(path)}&on_conflict=fail`, {
+        method: 'POST',
+        headers: { ...authHeaders('POST'), 'Content-Type': 'application/octet-stream' },
+        body: new TextEncoder().encode(text),
+        credentials: 'same-origin',
+      });
+    } catch {
+      throw new ApiError(0, 'network', '無法連線到伺服器');
+    }
+    if (!res.ok) throw await toError(res);
+    return res.json();
+  },
   codeDiagnose: (body: { text: string; mode?: 'auto' | 'error' | 'code'; lang?: string }) => json<DiagnoseReport>('POST', `${V}/code/diagnose`, body),
   ragSearch: (query: string, k = 12) =>
     json<{ results: RagHit[] }>('GET', `${V}/rag/search?q=${q(query)}&k=${k}`),

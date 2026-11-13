@@ -535,7 +535,12 @@ pub async fn resolve(ctx: &Ctx<'_>, parsed: Parsed) -> anyhow::Result<Report> {
         }
     }
 
-    let notes = notes(ctx, &note_terms).await?;
+    let known_ids: Vec<String> = solutions
+        .iter()
+        .filter(|x| x.source == "known")
+        .map(|x| x.id.clone())
+        .collect();
+    let notes = notes(ctx, &note_terms, &known_ids, &parsed.formatted).await?;
     let mut locations = out.locs;
     locations.sort_by(|a, b| b.score.total_cmp(&a.score));
     locations.truncate(MAX_LOCATIONS);
@@ -602,8 +607,107 @@ async fn similar(
 }
 
 /// Markdown notes mentioning the terms (rule ids, symbols, messages), best first.
-async fn notes(ctx: &Ctx<'_>, terms: &[(String, f32)]) -> anyhow::Result<Vec<Note>> {
+/// Notes tagged (front matter) with `kind` = `value`, in scope.
+async fn tagged(ctx: &Ctx<'_>, kind: &str, value: &str) -> anyhow::Result<Vec<String>> {
+    Ok(sqlx::query_scalar(with_subtree!(
+        "SELECT DISTINCT t.node_id FROM note_tags t JOIN sub ON sub.id = t.node_id
+         WHERE t.kind = ?2 AND t.value = ?3 COLLATE NOCASE LIMIT 20"
+    ))
+    .bind(ctx.scope)
+    .bind(kind)
+    .bind(value)
+    .fetch_all(ctx.db)
+    .await?)
+}
+
+/// Excerpt of a tagged note: its first section after the front matter.
+async fn note_intro(ctx: &Ctx<'_>, id: &str) -> anyhow::Result<(u32, Option<String>, String)> {
+    let body: String = sqlx::query_scalar("SELECT body FROM code_text WHERE node_id = ?")
+        .bind(id)
+        .fetch_optional(ctx.db)
+        .await?
+        .unwrap_or_default();
+    let start = super::notes::body_start(&body);
+    let first = body
+        .lines()
+        .enumerate()
+        .skip(start as usize - 1)
+        .find(|(_, l)| !l.trim().is_empty())
+        .map(|(i, _)| i as u32 + 1)
+        .unwrap_or(start);
+    // A leading title (# …) is the heading; show what follows it.
+    let line = if body
+        .lines()
+        .nth(first as usize - 1)
+        .is_some_and(|l| l.trim_start().starts_with('#'))
+    {
+        first + 1
+    } else {
+        first
+    };
+    let (heading, excerpt) = section(&body, line);
+    Ok((line, heading, excerpt))
+}
+
+/// Notes for the diagnose mode, best first:
+/// 1. front-matter tags (`rules`, `known`, `symbols`, and `errors` found in the input),
+/// 2. full-text mentions of rule ids, symbols and messages.
+async fn notes(
+    ctx: &Ctx<'_>,
+    terms: &[(String, f32)],
+    known: &[String],
+    input: &str,
+) -> anyhow::Result<Vec<Note>> {
     let mut by_node: HashMap<String, Note> = HashMap::new();
+    let mut hits: Vec<(String, f32, String)> = Vec::new();
+    for (term, w) in terms {
+        let kind = if *w >= 3.0 { "rule" } else { "symbol" };
+        for id in tagged(ctx, kind, term).await? {
+            hits.push((
+                id,
+                if kind == "rule" { 6.0 } else { 4.0 },
+                format!("標註：{term}"),
+            ));
+        }
+    }
+    for k in known {
+        for id in tagged(ctx, "known", k).await? {
+            hits.push((id, 6.0, format!("標註：{k}")));
+        }
+    }
+    let lower = input.to_lowercase();
+    let errs: Vec<(String, String)> = sqlx::query_as(with_subtree!(
+        "SELECT t.node_id, t.value FROM note_tags t JOIN sub ON sub.id = t.node_id WHERE t.kind = 'error'"
+    ))
+    .bind(ctx.scope)
+    .fetch_all(ctx.db)
+    .await?;
+    for (id, v) in errs {
+        if v.chars().count() >= 3 && lower.contains(&v.to_lowercase()) {
+            hits.push((id, 7.0, format!("標註的錯誤：{v}")));
+        }
+    }
+    for (id, w, label) in hits {
+        if !by_node.contains_key(&id) {
+            let (line, heading, excerpt) = note_intro(ctx, &id).await?;
+            by_node.insert(
+                id.clone(),
+                Note {
+                    node_id: id.clone(),
+                    line,
+                    heading,
+                    excerpt,
+                    matched: Vec::new(),
+                    score: 0.0,
+                },
+            );
+        }
+        let n = by_node.get_mut(&id).unwrap();
+        if !n.matched.contains(&label) {
+            n.score += w;
+            n.matched.push(label);
+        }
+    }
     let mut seen_terms = HashSet::new();
     for (term, w) in terms.iter().take(20) {
         if !seen_terms.insert(term.to_lowercase()) {

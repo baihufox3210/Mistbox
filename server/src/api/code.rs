@@ -338,3 +338,46 @@ pub async fn diagnose(
     }
     Ok(Json(v))
 }
+
+#[derive(Deserialize)]
+pub struct NotesQuery {
+    rule: Option<String>,
+    known: Option<String>,
+    symbol: Option<String>,
+}
+
+/// Notes linked by front matter to a rule / known error / symbol
+/// (`rules: [omp-race]` …), in the caller's scope.
+pub async fn notes(
+    State(state): State<AppState>,
+    p: Principal,
+    Query(q): Query<NotesQuery>,
+) -> ApiResult<Json<Value>> {
+    let root = target(&state, &p, None).await?;
+    let (kind, value) = match (&q.rule, &q.known, &q.symbol) {
+        (Some(v), None, None) => ("rule", v),
+        (None, Some(v), None) => ("known", v),
+        (None, None, Some(v)) => ("symbol", v),
+        _ => {
+            return Err(ApiError::bad_request(
+                "請只指定 rule、known 或 symbol 其中之一",
+            ));
+        }
+    };
+    if value.is_empty() || value.len() > 200 {
+        return Err(ApiError::bad_request("值需為 1–200 字"));
+    }
+    let ids: Vec<String> = sqlx::query_scalar(code::index::with_subtree!(
+        "SELECT DISTINCT t.node_id FROM note_tags t JOIN sub ON sub.id = t.node_id
+         WHERE t.kind = ?2 AND t.value = ?3 COLLATE NOCASE LIMIT 50"
+    ))
+    .bind(&root.id)
+    .bind(kind)
+    .bind(value)
+    .fetch_all(&state.db)
+    .await?;
+    let files = views(&state, &p, ids.iter().cloned()).await?;
+    let mut out: Vec<&NodeView> = ids.iter().filter_map(|id| files.get(id)).collect();
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(Json(json!({ "notes": out })))
+}

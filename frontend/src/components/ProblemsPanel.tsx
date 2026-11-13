@@ -5,6 +5,7 @@ import { api, errorText, type CodeDuplicate, type CodeFinding, type CodeStatus, 
 import { SEVERITY_LABEL, useCodeRules, useFileFindings } from '../state/codeFindings';
 import type { DriveModel } from '../state/useDrive';
 import { Icon } from './Icon';
+import RuleNoteButton from './RuleNoteButton';
 
 type Tab = 'problems' | 'duplicates';
 type Scope = 'file' | 'all';
@@ -181,6 +182,7 @@ function FindingList({
               <div className="finding-hint">
                 <InlineCode text={r.hint} />
                 <span className="muted small"> （規則 {r.id}）</span>
+                <RuleNoteButton m={m} target={{ kind: 'rule', id: r.id, title: r.title, steps: [r.hint] }} />
               </div>
             )}
           </li>

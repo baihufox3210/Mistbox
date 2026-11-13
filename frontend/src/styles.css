@@ -920,3 +920,12 @@ button.link:hover { text-decoration: underline; }
 
 .diag-hint { margin: 0; line-height: 1.7; }
 .diag-hint code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
+/* Note front matter (tags) and note buttons */
+.md-frontmatter { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 10px; margin: 0 0 16px; border: 1px dashed var(--line-strong); border-radius: var(--radius); font-size: 12.5px; color: var(--text-2); }
+.md-fm-row { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.md-fm-key { font-weight: 600; }
+.markdown-body .md-fm-val { font-size: 12px; padding: 0 5px; }
+.finding-hint .note-btn { margin-left: 8px; vertical-align: middle; }
+.note-btn { white-space: nowrap; flex: none; }
+.kv code, section > .muted code { font-family: var(--mono); font-size: 12px; }

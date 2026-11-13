@@ -112,3 +112,18 @@ describe('Markdown preview', () => {
     expect(onOpenPath).toHaveBeenCalledWith('../docs/讀我.md');
   });
 });
+
+import { splitFrontMatter } from './Markdown';
+
+describe('front matter', () => {
+  it('is split off and parsed', () => {
+    const r = splitFrontMatter('---\nrules: [omp-race, bit-precedence]\nsymbols:\n  - dma_x\n  - pio_y\n---\n# Title\n');
+    expect(r.body).toBe('# Title\n');
+    expect(r.meta).toEqual([
+      ['rules', 'omp-race, bit-precedence'],
+      ['symbols', 'dma_x, pio_y'],
+    ]);
+    expect(splitFrontMatter('# no\n---\n').meta).toEqual([]);
+    expect(splitFrontMatter('---\nrules: [a, b]   # 規則\n---\n').meta).toEqual([['rules', 'a, b']]);
+  });
+});

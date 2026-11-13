@@ -284,9 +284,32 @@ Firefox 會攔截 `Ctrl+Shift+P`（開啟隱私視窗），請改用 `F1` 或 `C
   - 訊息出處：執行期訊息（ROS 2 log、例外訊息）在原始碼中印出或拋出的位置，數字與路徑等變動部分會先去掉。
   - 程式碼輸入：這段程式碼在雲端的哪裡（改過名稱也找得到）、意思相近的實作、它呼叫的函式與誰呼叫它，以及這段程式碼本身的靜態分析結果。
 - **右半邊：解決方式與筆記**
-  - 內建約 25 種常見錯誤的說明與修法（不使用 LLM），偏重 C／C++ 工具鏈、Pico SDK（例如 `undefined reference` 會直接指出要加哪個 `hardware_xxx` 函式庫與標頭）、PIO、HardFault、ROS 2（QoS、executor、TF）、OpenMP、CUDA、Python。
+  - 內建 50 種常見錯誤的說明與修法（不使用 LLM），偏重：
+    - C／C++ 工具鏈：連結、標頭、型別範圍、位元欄位、strict aliasing、UBSan／ASan、堆積損壞。
+    - Pico SDK：`undefined reference` 會直接指出要加哪個 `hardware_xxx` 函式庫與標頭；`.pio.h` 沒產生、RAM／flash 不足、picotool、板子平台、DMA／狀態機被占用、HardFault。
+    - PIO、ROS 2（QoS、executor、TF、自訂訊息、DDS、套件與執行檔、節點重名）、OpenMP、執行緒與死結、CUDA、Python。
+  - 你自己遇到的錯誤可以用筆記補上，見下方〈筆記標註〉。
   - 相關靜態分析規則的修正建議。
   - **相關筆記**：Markdown 筆記中提到規則代號（例如 `omp-race`、`bit-precedence`）、函式名稱、錯誤訊息或例外名稱就會被找到，顯示該段落（依標題切出）。啟用語意搜尋時，也會列出意思相近的筆記。
+- **筆記標註**：在 Markdown 筆記開頭加上設定區塊，把筆記連到規則、錯誤或函式。預覽時這段會顯示成一排標籤。
+
+  ```markdown
+  ---
+  rules: [omp-race, bit-precedence]      # 靜態分析規則代號（問題面板／規則目錄裡看得到）
+  known: [undefined-reference]           # 內建常見錯誤的代號
+  symbols: [dma_channel_configure]       # 函式、型別名稱
+  errors: ["Failed to find a free participant index"]  # 錯誤訊息中的一段文字（不分大小寫）
+  tags: [rp2350, dma]                    # 自由標籤
+  ---
+  # 筆記標題
+  ```
+
+  - 有標註的筆記在診斷模式中排在最前面，顯示標題下的第一段。
+  - `errors` 是補充知識庫的方法：之後貼上的錯誤訊息只要包含這段文字，這篇筆記就會出現。
+  - 鍵名也可以用中文：`規則`、`常見錯誤`、`函式`、`錯誤訊息`、`標籤`。
+  - **一鍵新增**：問題面板展開一筆結果，或診斷模式的解決方式卡片上，都有「新增筆記」按鈕。它會在 `/筆記/規則/<代號>.md`（或 `/筆記/錯誤/`）建立已含標註與說明的範本並開啟；已有標註的筆記時，按鈕會變成「開啟筆記」。
+  - API：`GET /api/v1/code/notes?rule=omp-race`（或 `known=`、`symbol=`）。
+- **設定頁**的「程式碼分析與相似程式碼搜尋」顯示分析進度、各語言檔案數、筆記數、問題統計，以及程式碼模型是否已載入、向量數量與錯誤訊息，並可「重新分析」。
 - **相似程式碼搜尋**使用程式碼專用的嵌入模型 `jina-embeddings-v2-base-code`（int8，約 160 MB，768 維）：
   - 每個函式／方法／PIO 程式一個片段，函式外的程式碼以 40 行為單位，向量以 int8 存在 SQLite 並載入記憶體比對。
   - 與文字模型一樣在建置映像時下載（固定版本、驗證 SHA-256），執行時不連網；第一次使用時載入，閒置後卸載（`MISTBOX_RAG_IDLE_UNLOAD_SECS`）。

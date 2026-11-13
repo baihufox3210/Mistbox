@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
-import { api, errorText, type RagStatus, type UiSettings } from '../api';
+import { api, errorText, type CodeStatus, type RagStatus, type UiSettings } from '../api';
 import { applyBackground, applyLogo, applyTheme, getLogoPref, getThemePref, loadCustomCss, type Layout, type LogoPref, type ThemePref } from '../theme';
 import { Icon } from './Icon';
 import { Modal } from './Modal';
+
+const CODE_STATE: Record<string, string> = { starting: '啟動中', indexing: '分析中', embedding: '建立程式碼向量中', ready: '就緒' };
+const LANG_LABEL: Record<string, string> = { c: 'C', cpp: 'C++', python: 'Python', pio: 'PIO', generic: '其他' };
 
 export default function SettingsDialog({
   onClose,
@@ -21,6 +24,7 @@ export default function SettingsDialog({
   const [blur, setBlur] = useState(0);
   const [msg, setMsg] = useState('');
   const [rag, setRag] = useState<RagStatus | null>(null);
+  const [code, setCode] = useState<CodeStatus | null>(null);
 
   useEffect(() => {
     api.settings().then((v) => {
@@ -29,7 +33,10 @@ export default function SettingsDialog({
       setDim(v.background_dim);
       setBlur(v.background_blur);
     }, (e) => setMsg(errorText(e)));
-    const poll = () => api.ragStatus().then(setRag, () => {});
+    const poll = () => {
+      api.ragStatus().then(setRag, () => {});
+      api.codeStatus().then(setCode, () => {});
+    };
     poll();
     const t = setInterval(poll, 4000);
     return () => clearInterval(t);
@@ -183,6 +190,73 @@ export default function SettingsDialog({
               <p className="muted small">敏感檔（.env、私鑰等）不會被索引；搜尋結果依登入者或 API Key 權限過濾。按 Ctrl+Shift+F 或在指令面板輸入 ? 開始搜尋。</p>
               <button className="btn" onClick={() => api.ragReindex().then(() => setMsg('已清除索引，背景重新建立中'), (e) => setMsg(errorText(e)))}>
                 重建索引
+              </button>
+            </>
+          )}
+        </section>
+        <section>
+          <h3>程式碼分析與相似程式碼搜尋</h3>
+          {!code ? (
+            <p className="muted">載入中…</p>
+          ) : (
+            <>
+              <dl className="kv">
+                <dt>狀態</dt>
+                <dd>{CODE_STATE[code.state] ?? code.state}</dd>
+                <dt>已分析</dt>
+                <dd>
+                  {code.files} 個程式檔
+                  {Object.keys(code.by_lang).length > 0 && (
+                    <span className="muted">
+                      （
+                      {Object.entries(code.by_lang)
+                        .filter(([l]) => l !== 'markdown')
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([l, n]) => `${LANG_LABEL[l] ?? l} ${n}`)
+                        .join('、')}
+                      ）
+                    </span>
+                  )}
+                  {' · '}
+                  {code.notes} 篇 Markdown 筆記
+                </dd>
+                <dt>待處理</dt>
+                <dd>{code.pending}</dd>
+                <dt>分析結果</dt>
+                <dd>
+                  錯誤 {code.findings.error ?? 0} · 警告 {code.findings.warning ?? 0} · 可優化 {code.findings.perf ?? 0} · 建議 {code.findings.info ?? 0}
+                </dd>
+                <dt>程式碼模型</dt>
+                <dd>
+                  {code.semantic ? (
+                    <>
+                      {code.semantic.model === 'jina-code-q8' ? 'jina-embeddings-v2-base-code（int8 · 768 維）' : code.semantic.model}
+                      {code.semantic.error ? (
+                        <span className="err"> — {code.semantic.error}</span>
+                      ) : code.semantic.model_loaded ? (
+                        <span className="muted">（已載入）</span>
+                      ) : (
+                        <span className="muted">（閒置已卸載以節省記憶體，下次使用時自動載入）</span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="muted">未啟用（MISTBOX_CODE_MODEL=off，或映像未包含模型）；診斷模式的其他功能照常</span>
+                  )}
+                </dd>
+                {code.semantic && (
+                  <>
+                    <dt>程式碼向量</dt>
+                    <dd>
+                      {code.semantic.files} 個檔案 · {code.semantic.chunks} 個片段
+                    </dd>
+                  </>
+                )}
+              </dl>
+              <p className="muted small">
+                不需要 AVX2。可在這台機器上執行 <code>docker compose exec app mistbox rag selftest</code> 確認兩個模型都能運作。敏感檔與垃圾桶不分析。
+              </p>
+              <button className="btn" onClick={() => api.codeReindex().then(() => setMsg('已清除程式碼分析結果，背景重新分析中'), (e) => setMsg(errorText(e)))}>
+                重新分析
               </button>
             </>
           )}

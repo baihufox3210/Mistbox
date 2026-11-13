@@ -309,6 +309,291 @@ const KNOWN: &[Known] = &[
         rule: Some("mp-main-guard"),
         lib_hint: false,
     },
+    // ---- Pico SDK build / flashing
+    Known {
+        id: "pio-header-missing",
+        re: r"([\w\-]+)\.pio\.h: No such file or directory",
+        title: "找不到 `{1}.pio.h`（PIO 標頭沒有產生）",
+        steps: &[
+            "`.pio.h` 是建置時由 pioasm 產生的：在 CMakeLists.txt 加上 `pico_generate_pio_header(<target> ${CMAKE_CURRENT_LIST_DIR}/{1}.pio)`。",
+            "`.pio` 檔要在 `pico_generate_pio_header` 指定的路徑；改完重新 `cmake` 一次。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "ram-overflow",
+        re: r"region [`'‘]?(RAM|SCRATCH_[XY]|FLASH)['’]? overflowed by (\d+) bytes|will not fit in region [`'‘]?(\w+)",
+        title: "記憶體區段 `{1}` 放不下",
+        steps: &[
+            "RAM：RP2350 有 520 KB SRAM（RP2040 264 KB）。大型緩衝區改小、改成 `const`（放在 flash），或用 `static` 讓連結器看得到實際用量；查看 `.map` 檔找出大戶。",
+            "FLASH：程式超過 flash 大小，檢查 `PICO_FLASH_SIZE_BYTES` 是否符合板子，移除除錯用的 `printf` 與大型表格。",
+            "SCRATCH_X / SCRATCH_Y：核心堆疊放不下，調整 `PICO_STACK_SIZE` / `PICO_CORE1_STACK_SIZE`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "picotool-no-device",
+        re: r"(?i)no accessible rp-series devices|no accessible rp2040 devices|unable to connect to.*bootsel",
+        title: "picotool 找不到板子",
+        steps: &[
+            "按住 BOOTSEL 再接上 USB（或按 RUN 時按住 BOOTSEL），進入 USB 隨身碟模式。",
+            "Linux 權限：安裝 picotool 的 udev 規則（`99-picotool.rules`），或暫時用 `sudo`。",
+            "程式正在執行且有 USB stdio 時，可用 `picotool load -f` 讓它自動重開進 BOOTSEL。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "pico-platform",
+        re: r"(?i)unknown board|PICO_PLATFORM|rp2350-(?:arm-s|riscv)|not supported on (?:RP2040|RP2350)",
+        title: "Pico 板子／平台設定不符",
+        steps: &[
+            "RP2350（Pico 2）：`cmake -DPICO_BOARD=pico2 ..`（Pico 2 W 用 `pico2_w`），平台會自動設為 `rp2350-arm-s`；要用 RISC-V 核心則 `-DPICO_PLATFORM=rp2350-riscv`。",
+            "換板子後要刪掉 build 資料夾重新 cmake，舊的快取會保留原本的平台。",
+            "RP2350 專用的 API（如 pio2、新的 PIO 指令）在 RP2040 不能用。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "led-pin-undeclared",
+        re: r"PICO_DEFAULT_LED_PIN['’]? undeclared|PICO_DEFAULT_LED_PIN.*not declared",
+        title: "沒有 `PICO_DEFAULT_LED_PIN`",
+        steps: &[
+            "Pico W / Pico 2 W 的 LED 接在無線晶片上，要用 `cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, 1)`，並連結 `pico_cyw43_arch_none`。",
+            "或確認 `PICO_BOARD` 設定正確（未設定時預設為 pico）。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "dma-claimed",
+        re: r"(?i)dma channel \d+ (?:is )?already claimed|no dma channels? (?:are )?available|all dma channels",
+        title: "DMA 通道已被占用",
+        steps: &[
+            "寫死的通道編號和其他程式碼或函式庫衝突。改用 `dma_claim_unused_channel(true)` 取得通道，用完 `dma_channel_unclaim`。",
+            "RP2350 有 16 個 DMA 通道；確認沒有在迴圈中重複 claim 卻沒有釋放。",
+        ],
+        rule: Some("dma-hardcoded-channel"),
+        lib_hint: false,
+    },
+    Known {
+        id: "sm-claimed",
+        re: r"(?i)state machine \d+ (?:is )?already claimed|no (?:free|unused) state machines?|pio_sm_claim",
+        title: "PIO 狀態機已被占用",
+        steps: &[
+            "改用 `pio_claim_unused_sm(pio, true)`，或 `pio_claim_free_sm_and_add_program_for_gpio_range(...)` 自動挑選 PIO 區塊與狀態機。",
+            "每個 PIO 區塊 4 個狀態機；RP2350 有 3 個 PIO 區塊。",
+        ],
+        rule: Some("pio-hardcoded-sm"),
+        lib_hint: false,
+    },
+    // ---- bit operations / integer types
+    Known {
+        id: "ubsan-shift",
+        re: r"(?i)shift exponent -?\d+ is (?:too large|negative)|left shift of (?:negative value|-?\d+ by \d+ places cannot be represented)",
+        title: "位移造成未定義行為（UBSan）",
+        steps: &[
+            "有號整數左移進符號位元、位移負數，或位移量 ≥ 型別寬度都是未定義行為。",
+            "遮罩用無號常數：`1u << n`、`1ull << n`；位移前確認 `n < 32`（或 64）。",
+        ],
+        rule: Some("shift-overflow"),
+        lib_hint: false,
+    },
+    Known {
+        id: "signed-overflow",
+        re: r"(?i)signed integer overflow|integer overflow in expression",
+        title: "有號整數溢位",
+        steps: &[
+            "有號整數溢位是未定義行為，編譯器最佳化後結果可能很奇怪。",
+            "計數器、位元運算與時間戳記改用無號或更寬的型別（`uint32_t`、`int64_t`）；比較時間用相減（`(int32_t)(a - b) > 0`）。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "truncated-constant",
+        re: r"(?i)overflow in (?:conversion|implicit constant conversion)|large integer implicitly truncated|unsigned conversion from .* changes value|-Woverflow",
+        title: "常數被截斷",
+        steps: &[
+            "數值超出目標型別的範圍（例如把 `0x1FF` 存進 `uint8_t`）。",
+            "確認暫存器欄位寬度，用遮罩明確取出需要的位元：`(uint8_t)(x & 0xFFu)`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "always-true-range",
+        re: r"(?i)comparison is always (?:true|false) due to limited range of data type|comparison of unsigned expression .* is always (?:true|false)",
+        title: "比較結果永遠固定（型別範圍）",
+        steps: &[
+            "常見於 `unsigned x >= 0`（永遠成立）或 `uint8_t` 和 256 比較；迴圈 `for (unsigned i = n; i >= 0; i--)` 會無窮迴圈。",
+            "`char` 在 ARM 上預設是無號的，存 -1 判斷 EOF 會失敗；用 `int` 或 `signed char`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "bitfield-width",
+        re: r"(?i)width of [‘'`]?\w+['’]? exceeds its type|is narrower than values of its type|bit-field .* (?:too large|has negative width)",
+        title: "位元欄位寬度錯誤",
+        steps: &[
+            "位元欄位寬度不能超過其型別的位元數（例如 `uint8_t x : 9`）。",
+            "列舉型別的位元欄位要夠寬，能放下所有列舉值。對應硬體暫存器時建議改用遮罩與位移常數。",
+        ],
+        rule: Some("bitfield-plain-int"),
+        lib_hint: false,
+    },
+    Known {
+        id: "strict-aliasing",
+        re: r"dereferencing type-punned pointer will break strict-aliasing rules|-Wstrict-aliasing",
+        title: "型別雙關違反 strict aliasing",
+        steps: &[
+            "用不同型別的指標讀同一塊記憶體（例如把 `float*` 轉成 `uint32_t*`）在最佳化後可能讀到錯的值。",
+            "改用 `memcpy(&u, &f, sizeof u)`（編譯器會最佳化成單一指令）或 `union`；C++20 可用 `std::bit_cast`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    // ---- memory errors
+    Known {
+        id: "heap-corruption",
+        re: r"(?i)double free|free\(\): invalid|malloc\(\): corrupted|heap corruption|corrupted size vs\. prev_size",
+        title: "堆積記憶體損壞",
+        steps: &[
+            "重複 free、free 非 malloc 來的指標，或寫超過配置的範圍。",
+            "以 `-fsanitize=address -g` 編譯執行，會指出第一個出錯的存取與配置位置；free 後把指標設為 `NULL`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "asan-overflow",
+        re: r"AddressSanitizer: (heap-buffer-overflow|stack-buffer-overflow|global-buffer-overflow|heap-use-after-free|stack-use-after-return)",
+        title: "AddressSanitizer：{1}",
+        steps: &[
+            "報告的第一個堆疊是出錯的存取，下面的「allocated by / freed by」指出記憶體的來源。",
+            "檢查迴圈邊界（`<` 與 `<=`）、`sizeof` 用在指標而不是陣列、字串少算結尾的 `\\0`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    // ---- ROS 2
+    Known {
+        id: "ros-no-executable",
+        re: r"(?i)no executable found|failed to load entry point|package ['\x22]?([\w-]+)['\x22]? not found",
+        title: "ros2 run 找不到套件或執行檔",
+        steps: &[
+            "建置後要 `source install/setup.bash`（每個新終端機都要）。",
+            "Python 套件：`setup.py` 的 `entry_points={'console_scripts': ['name = pkg.module:main']}`；C++：`install(TARGETS <exe> DESTINATION lib/${PROJECT_NAME})`。",
+            "修改 `setup.py` 或 `CMakeLists.txt` 後重新 `colcon build`（Python 可加 `--symlink-install`）。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "ros-context",
+        re: r"(?i)rclcpp::exceptions::RCLError|context is (?:not valid|invalid)|rcl_init.*already|must call rclcpp::init|rclpy\.init\(\) has not been called",
+        title: "ROS 2 context 未初始化或已關閉",
+        steps: &[
+            "建立任何 node 之前先呼叫 `rclcpp::init(argc, argv)` / `rclpy.init()`，結束時最後才 `shutdown()`。",
+            "不要在 `shutdown()` 之後還使用 node、publisher 或 timer；全域或 static 的 node 物件會在 shutdown 後才解構。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "ros-duplicate-node",
+        re: r"(?i)nodes? (?:in the graph )?(?:that )?share an exact name|found remote node with the same name|publisher already registered for provided node name",
+        title: "ROS 2 節點名稱重複",
+        steps: &[
+            "同一個名稱啟動了兩個節點，會造成參數、服務與 tf 混亂。",
+            "用 launch 的 `name=` 或 `--ros-args -r __node:=新名稱`，或加 namespace（`-r __ns:=/robot1`）。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "ros-interfaces",
+        re: r"(?i)rosidl_generate_interfaces|Could not find ROS interfaces|rosidl.*not found|member_of_group",
+        title: "自訂訊息（msg / srv）產生失敗",
+        steps: &[
+            "`package.xml` 需要 `<buildtool_depend>rosidl_default_generators</buildtool_depend>`、`<exec_depend>rosidl_default_runtime</exec_depend>` 與 `<member_of_group>rosidl_interface_packages</member_of_group>`。",
+            "`CMakeLists.txt`：`rosidl_generate_interfaces(${PROJECT_NAME} \"msg/X.msg\" DEPENDENCIES std_msgs)`；同套件的 C++ 要用 `rosidl_get_typesupport_target` 連結。",
+            "訊息套件最好獨立成一個 ament_cmake 套件。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "dds-participant",
+        re: r"(?i)failed to find a free participant index|fastrtps.*shm|RTPS_TRANSPORT_SHM|failed to create (?:participant|domain participant)",
+        title: "DDS 參與者建立失敗",
+        steps: &[
+            "同一個 `ROS_DOMAIN_ID` 上的參與者太多，或殘留的 Fast DDS 共享記憶體檔：刪除 `/dev/shm/fastrtps_*`（確認沒有 ROS 程式在跑）。",
+            "不同專案用不同的 `ROS_DOMAIN_ID`（0–101）；Docker 容器間通訊需要 `--network host` 與 `--ipc host`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    // ---- parallel computing
+    Known {
+        id: "thread-create",
+        re: r"(?i)pthread_create failed|resource temporarily unavailable|libgomp: Thread creation failed|std::system_error.*Resource",
+        title: "無法建立執行緒",
+        steps: &[
+            "執行緒數量超過系統或容器限制（`ulimit -u`、cgroup 的 pids 限制），或每個執行緒的堆疊太大。",
+            "用執行緒池取代為每個工作開新執行緒；OpenMP 用 `OMP_NUM_THREADS` 限制數量，避免巢狀平行（`OMP_MAX_ACTIVE_LEVELS=1`）。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "deadlock",
+        re: r"(?i)resource deadlock (?:avoided|would occur)|EDEADLK|lock-order-inversion|potential deadlock",
+        title: "死結",
+        steps: &[
+            "同一個執行緒重複鎖同一個非遞迴 mutex，或兩個執行緒以相反順序取得兩把鎖。",
+            "固定取鎖順序，或用 `std::scoped_lock(a, b)` 一次取得多把鎖；ThreadSanitizer 的 lock-order-inversion 報告會列出兩條路徑。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "cuda-no-kernel-image",
+        re: r"(?i)no kernel image is available for execution on the device|cudaErrorNoKernelImageForDevice|unsupported gpu architecture",
+        title: "CUDA 編譯的架構不符合這張 GPU",
+        steps: &[
+            "用 `nvidia-smi --query-gpu=compute_cap --format=csv` 查 GPU 的 compute capability。",
+            "CMake：`set(CMAKE_CUDA_ARCHITECTURES 89)`（依你的 GPU）或 `native`；nvcc：`-arch=sm_89`。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "cuda-launch-config",
+        re: r"(?i)invalid configuration argument|cudaErrorInvalidConfiguration|unspecified launch failure|cudaErrorLaunchFailure",
+        title: "CUDA kernel 啟動失敗",
+        steps: &[
+            "invalid configuration：每個 block 最多 1024 個執行緒、grid 的 y／z 維度最多 65535，或動態 shared memory 超過上限。",
+            "unspecified launch failure：kernel 內越界存取或除以零，用 `compute-sanitizer` 找出位置。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
+    Known {
+        id: "mp-pickle",
+        re: r"(?i)can't pickle|cannot pickle|PicklingError|AttributeError: Can't get attribute",
+        title: "multiprocessing 無法序列化",
+        steps: &[
+            "傳給 `Pool` / `Process` 的函式必須是模組頂層定義的函式，不能是 lambda、巢狀函式或綁定方法裡的區域物件。",
+            "檔案、socket、鎖等物件無法傳遞，改在子行程中自行建立。",
+        ],
+        rule: None,
+        lib_hint: false,
+    },
 ];
 
 static COMPILED: LazyLock<Vec<Regex>> =
@@ -389,6 +674,16 @@ pub fn known(text: &str) -> Vec<Solution> {
             rule: k.rule,
         });
     }
+    // A specific explanation replaces the generic one it overlaps with.
+    const MORE_SPECIFIC: &[(&str, &str)] = &[
+        ("pio-header-missing", "no-such-file"),
+        ("omp-not-enabled", "undefined-reference"),
+    ];
+    for (specific, generic) in MORE_SPECIFIC {
+        if out.iter().any(|x| x.id == *specific) {
+            out.retain(|x| x.id != *generic);
+        }
+    }
     out
 }
 
@@ -450,6 +745,32 @@ mod tests {
             ["segfault"]
         );
         assert!(ids("all good").is_empty());
+        assert_eq!(
+            ids("fatal error: ws2812.pio.h: No such file or directory"),
+            ["pio-header-missing"]
+        );
+        assert_eq!(
+            known("ld: region `RAM' overflowed by 4096 bytes")[0].title,
+            "記憶體區段 `RAM` 放不下"
+        );
+        assert_eq!(
+            ids("runtime error: left shift of 1 by 31 places cannot be represented in type 'int'"),
+            ["ubsan-shift"]
+        );
+        assert_eq!(
+            ids("[ERROR] [rmw_fastrtps_cpp]: Failed to find a free participant index for domain 0"),
+            ["dds-participant"]
+        );
+        assert_eq!(
+            ids("CUDA error: no kernel image is available for execution on the device"),
+            ["cuda-no-kernel-image"]
+        );
+        assert_eq!(ids("No executable found"), ["ros-no-executable"]);
+        assert_eq!(ids("width of 'mode' exceeds its type"), ["bitfield-width"]);
+        assert_eq!(
+            ids("==1==ERROR: AddressSanitizer: heap-buffer-overflow on address"),
+            ["asan-overflow"]
+        );
         assert_eq!(
             library_for("multicore_launch_core1"),
             Some(("pico_multicore", Some("pico/multicore.h")))

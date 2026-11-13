@@ -2418,3 +2418,77 @@ async fn diagnose_mode_locates_code_fixes_and_notes() {
     assert!(r.json()["semantic"]["chunks"].as_u64().unwrap() > 0, "{:?}", r.json());
     assert_eq!(r.json()["notes"], 2);
 }
+
+#[tokio::test]
+async fn note_front_matter_links_rules_known_errors_and_custom_errors() {
+    let t = T::new().await;
+    let notes = t.mkdir("root", "筆記").await;
+    let other = t.mkdir("root", "other").await;
+    t.upload(
+        &notes,
+        "omp.md",
+        "---\nrules: [omp-race]\nknown: [undefined-reference]\nsymbols: [accumulate]\n---\n# OpenMP 心得\n\n用 reduction 取代共享累加。\n\n## 其他\n無關的段落\n".as_bytes(),
+    )
+    .await;
+    t.upload(
+        &notes,
+        "dds.md",
+        "---\nerrors: [\"Failed to find a free participant index\"]\n---\n# DDS 問題\n刪掉 /dev/shm/fastrtps_* 後重開。\n".as_bytes(),
+    )
+    .await;
+    // A note outside the key's scope.
+    t.upload(&other, "x.md", b"---\nrules: [omp-race]\n---\n# out of scope\n").await;
+    t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
+
+    // Lookup by rule.
+    let r = t.admin(Method::GET, "/api/v1/code/notes?rule=omp-race", None).await;
+    assert_eq!(r.status, StatusCode::OK, "{:?}", r.json());
+    let paths: Vec<_> = r.json()["notes"].as_array().unwrap().iter().map(|n| n["path"].as_str().unwrap().to_string()).collect();
+    assert_eq!(paths, ["/other/x.md", "/筆記/omp.md"]);
+    assert_eq!(t.admin(Method::GET, "/api/v1/code/notes?rule=omp-race&symbol=x", None).await.status, StatusCode::BAD_REQUEST);
+
+    // Diagnose: rule from analysis of the pasted code → tagged note, intro excerpt.
+    let code = "double s = 0;\n#pragma omp parallel for\nfor (int i = 0; i < n; i++) {\n    s += a[i];\n}\n";
+    let r = t.admin(Method::POST, "/api/v1/code/diagnose", Some(json!({ "text": code, "lang": "c" }))).await;
+    let v = r.json();
+    let n = v["notes"].as_array().unwrap().iter().find(|n| n["file"]["path"] == "/筆記/omp.md").expect("tagged note");
+    assert!(n["matched"].as_array().unwrap().iter().any(|m| m == "標註：omp-race"), "{n:?}");
+    assert_eq!(n["heading"], "OpenMP 心得");
+    assert!(n["excerpt"].as_str().unwrap().contains("reduction"));
+    assert!(!n["excerpt"].as_str().unwrap().contains("rules:"), "front matter not in excerpt");
+
+    // Known error id and a custom error message from the user's own note.
+    let r = t
+        .admin(
+            Method::POST,
+            "/api/v1/code/diagnose",
+            Some(json!({ "text": "main.c:(.text+0x8): undefined reference to `foo'\n[ERROR] [1.0] [rmw]: Failed to find a free participant index for domain 0" })),
+        )
+        .await;
+    let notes_v = r.json()["notes"].as_array().unwrap().clone();
+    let get = |p: &str| notes_v.iter().find(|n| n["file"]["path"] == p).cloned();
+    assert!(get("/筆記/omp.md").unwrap()["matched"].as_array().unwrap().iter().any(|m| m == "標註：undefined-reference"));
+    let dds = get("/筆記/dds.md").expect("custom error note");
+    assert!(dds["matched"][0].as_str().unwrap().starts_with("標註的錯誤："));
+    assert_eq!(notes_v[0]["file"]["path"], "/筆記/dds.md", "custom error ranks first: {notes_v:?}");
+
+    // Scoped key: only notes inside its scope.
+    let k = t.key(json!({"name":"k","permissions":{"list":true,"read":true},"scope_node_id": notes})).await;
+    let r = t.bearer(&k, Method::GET, "/api/v1/code/notes?rule=omp-race", vec![]).await;
+    assert_eq!(r.json()["notes"].as_array().unwrap().len(), 1);
+
+    // Editing the front matter updates the links.
+    let id = t.admin(Method::GET, &format!("/api/v1/fs/info?path={}", enc("/筆記/dds.md")), None).await.json();
+    let r = t
+        .raw(
+            Method::PUT,
+            &format!("/api/v1/nodes/{}/content", id["id"].as_str().unwrap()),
+            &[("cookie", &t.cookie), ("x-csrf-token", &t.csrf), ("if-match", &format!("\"{}\"", id["sha256"].as_str().unwrap()))],
+            b"# no tags any more\n".to_vec(),
+        )
+        .await;
+    assert_eq!(r.status, StatusCode::OK);
+    t.state.code.index_pending(&t.state.db, &t.state.store).await.unwrap();
+    let r = t.admin(Method::POST, "/api/v1/code/diagnose", Some(json!({ "text": "Failed to find a free participant index" }))).await;
+    assert!(!r.json()["notes"].as_array().unwrap().iter().any(|n| n["file"]["path"] == "/筆記/dds.md" && n["matched"][0].as_str().unwrap().starts_with("標註")));
+}

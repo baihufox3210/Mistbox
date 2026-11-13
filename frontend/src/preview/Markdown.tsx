@@ -31,7 +31,40 @@ interface Props {
  * - relative images go through the authenticated `/relative` endpoint, which
  *   re-checks permission on the target file.
  */
-export default function Markdown({ source, fileId, onOpenPath }: Props) {
+/** Drop a trailing ` # comment` (outside quotes). */
+function stripComment(v: string): string {
+  let quote = '';
+  for (let i = 0; i < v.length; i++) {
+    const c = v[i];
+    if (quote) {
+      if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '#' && (i === 0 || /\s/.test(v[i - 1]))) return v.slice(0, i);
+  }
+  return v;
+}
+
+/** `--- key: value … ---` at the very top (note tags); returned separately so it is not rendered as text. */
+export function splitFrontMatter(source: string): { meta: [string, string][]; body: string } {
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(source);
+  if (!m) return { meta: [], body: source };
+  const meta: [string, string][] = [];
+  for (const line of m[1].split(/\r?\n/)) {
+    const item = /^\s*-\s+(.*)$/.exec(line);
+    if (item && meta.length) {
+      const last = meta[meta.length - 1];
+      const v = stripComment(item[1]).trim();
+      last[1] = last[1] ? `${last[1]}, ${v}` : v;
+      continue;
+    }
+    const kv = /^([^:#]+):\s*(.*)$/.exec(line);
+    if (kv) meta.push([kv[1].trim(), stripComment(kv[2]).trim().replace(/^\[(.*)\]$/, '$1')]);
+  }
+  return { meta, body: source.slice(m[0].length) };
+}
+
+export default function Markdown({ source: raw, fileId, onOpenPath }: Props) {
+  const { meta, body: source } = splitFrontMatter(raw);
   const components: Components = {
     img({ src, alt, title }) {
       const s = typeof src === 'string' ? src : '';
@@ -77,6 +110,22 @@ export default function Markdown({ source, fileId, onOpenPath }: Props) {
   };
   return (
     <div className="markdown-body">
+      {meta.length > 0 && (
+        <div className="md-frontmatter" aria-label="筆記標註">
+          {meta.map(([k, v]) => (
+            <span key={k} className="md-fm-row">
+              <span className="md-fm-key">{k}</span>
+              {v
+                .split(',')
+                .map((x) => x.trim().replace(/^["']|["']$/g, ''))
+                .filter(Boolean)
+                .map((x) => (
+                  <code key={x} className="md-fm-val">{x}</code>
+                ))}
+            </span>
+          ))}
+        </div>
+      )}
       <ReactMarkdown
         remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
         rehypePlugins={[

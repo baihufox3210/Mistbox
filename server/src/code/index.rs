@@ -38,15 +38,17 @@ macro_rules! with_subtree {
 pub(crate) use with_subtree;
 
 /// Per-file rows, cleared before re-analysing a file.
-const CLEAR_FILE: [&str; 5] = [
+const CLEAR_FILE: [&str; 6] = [
     "DELETE FROM code_text WHERE node_id = ?",
+    "DELETE FROM note_tags WHERE node_id = ?",
     "DELETE FROM code_symbols WHERE node_id = ?",
     "DELETE FROM code_refs WHERE node_id = ?",
     "DELETE FROM code_findings WHERE node_id = ?",
     "DELETE FROM code_fp WHERE node_id = ?",
 ];
 /// Rows of files that are no longer indexed.
-const CLEAR_STALE: [&str; 5] = [
+const CLEAR_STALE: [&str; 6] = [
+    "DELETE FROM note_tags WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
     "DELETE FROM code_text WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
     "DELETE FROM code_symbols WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
     "DELETE FROM code_refs WHERE node_id NOT IN (SELECT node_id FROM code_files WHERE status = 'indexed')",
@@ -186,6 +188,16 @@ impl CodeIndex {
             .bind(&text)
             .execute(&mut *tx)
             .await?;
+        if lang == Lang::Markdown {
+            for (kind, value) in super::notes::tags(&text) {
+                sqlx::query("INSERT INTO note_tags (node_id, kind, value) VALUES (?, ?, ?)")
+                    .bind(&n.id)
+                    .bind(kind)
+                    .bind(&value)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
         for s in &a.symbols {
             sqlx::query("INSERT INTO code_symbols (node_id, name, kind, line_start, line_end) VALUES (?, ?, ?, ?, ?)")
                 .bind(&n.id)

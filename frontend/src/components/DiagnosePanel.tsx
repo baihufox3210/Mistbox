@@ -7,6 +7,7 @@ import { SEVERITY_LABEL, useCodeRules } from '../state/codeFindings';
 import type { DriveModel } from '../state/useDrive';
 import { Icon } from './Icon';
 import { InlineCode, SevIcon } from './ProblemsPanel';
+import RuleNoteButton from './RuleNoteButton';
 
 const CodeView = lazy(() => import('../preview/CodeView'));
 const Markdown = lazy(() => import('../preview/Markdown'));
@@ -177,19 +178,29 @@ export default function DiagnosePanel({ m, onClose }: { m: DriveModel; onClose: 
                     {r ? <SevIcon s={r.severity} /> : <Icon name="sevInfo" size={14} />}
                     <strong><InlineCode text={s.title} /></strong>
                     <span className="badge">{s.source === 'known' ? '常見錯誤' : SEVERITY_LABEL[r?.severity ?? 'info']}</span>
+                    <span className="spacer" />
+                    <RuleNoteButton
+                      m={m}
+                      target={{ kind: s.source === 'known' ? 'known' : 'rule', id: s.source === 'known' ? s.id : (s.rule ?? s.id), title: s.title.replace(/`/g, ''), steps: s.steps }}
+                      onOpened={close}
+                    />
                   </header>
                   <ul>
                     {s.steps.map((x, i) => (
                       <li key={i}><InlineCode text={x} /></li>
                     ))}
                   </ul>
-                  {s.rule && <div className="muted small">規則 <code>{s.rule}</code> — 在筆記中寫上這個代號，這篇筆記就會出現在「相關筆記」。</div>}
+                  {s.rule && <div className="muted small">規則 <code>{s.rule}</code></div>}
                 </article>
               );
             })}
             <h3 className="diag-title">相關筆記 <span className="muted small">{report.notes.length} 篇</span></h3>
             {report.notes.length === 0 && (
-              <p className="diag-hint muted small">沒有相關筆記。在 Markdown 筆記中提到規則代號（例如 <code>omp-race</code>）、函式名稱或錯誤訊息，就會被找到。</p>
+              <p className="diag-hint muted small">
+                沒有相關筆記。按上方的「新增筆記」建立，或在任何 Markdown 筆記開頭加上
+                <code>---</code> <code>rules: [omp-race]</code> <code>errors: [&quot;錯誤訊息片段&quot;]</code> <code>---</code>
+                ，之後遇到同樣的規則或錯誤就會自動列在這裡。
+              </p>
             )}
             {report.notes.map((n) => (
               <article key={n.node_id} className="note-card">
